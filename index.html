@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blockforge Prototype</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div class="crosshair" aria-hidden="true"></div>
+
+    <aside class="panel panel--intro" id="intro-panel">
+      <p class="eyebrow">Voxel Sandbox</p>
+      <h1>Blockforge</h1>
+      <p class="lede">
+        A first playable step toward your own Minecraft-like game. Walk the
+        terrain, break blocks, place new ones, and shape the world.
+      </p>
+      <p class="message" id="start-message" role="status"></p>
+      <button id="play-button" type="button">Enter World</button>
+      <ul class="controls">
+        <li><span>Move</span><strong>W A S D</strong></li>
+        <li><span>Jump</span><strong>Space</strong></li>
+        <li><span>Break</span><strong>Left Click</strong></li>
+        <li><span>Place</span><strong>Right Click</strong></li>
+        <li><span>Blocks</span><strong>1 2 3 4 5</strong></li>
+        <li><span>Pause</span><strong>Esc</strong></li>
+      </ul>
+    </aside>
+
+    <section class="hud">
+      <div class="notice" id="notice-banner" aria-live="polite"></div>
+      <div class="status">
+        <p class="status__label">Selected Block</p>
+        <p class="status__value" id="selected-block-label">Grass</p>
+        <p class="status__meta" id="death-count-label">Deaths: 0</p>
+      </div>
+      <div class="hotbar" id="hotbar">
+        <button class="slot slot--active" data-slot="0" type="button">1 Grass</button>
+        <button class="slot" data-slot="1" type="button">2 Dirt</button>
+        <button class="slot" data-slot="2" type="button">3 Stone</button>
+        <button class="slot" data-slot="3" type="button">4 Wood</button>
+        <button class="slot" data-slot="4" type="button">5 Glow</button>
+      </div>
+    </section>
+
+    <script>
+      window.__blockforgeBooted = false;
+
+      function setBootMessage(message) {
+        const startMessage = document.querySelector("#start-message");
+        if (startMessage) {
+          startMessage.textContent = message;
+        }
+      }
+
+      if (window.location.protocol === "file:") {
+        setBootMessage(
+          "Open this through a local server, not by double-clicking the HTML file. Run: python -m http.server 8000, then open http://localhost:8000."
+        );
+      } else {
+        window.setTimeout(() => {
+          if (!window.__blockforgeBooted) {
+            setBootMessage(
+              "The game engine did not start. Make sure your browser has internet access for the Three.js modules, then reload."
+            );
+          }
+        }, 2500);
+      }
+    </script>
+    <script type="module" src="./app.mjs"></script>
+  </body>
+</html>

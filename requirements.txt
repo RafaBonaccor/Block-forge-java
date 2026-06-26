@@ -1,0 +1,2 @@
+# No third-party Python packages are required right now.
+# Add Python dependencies here when setup or tooling needs them.
