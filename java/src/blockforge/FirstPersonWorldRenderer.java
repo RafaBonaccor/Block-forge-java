@@ -377,6 +377,70 @@ final class FirstPersonWorldRenderer {
         g2.drawLine(centerX, centerY - 10, centerX, centerY + 10);
     }
 
+    void drawBreakingOverlay(
+        Graphics2D g2,
+        World world,
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        SelectionTarget selectedTarget,
+        double progress
+    ) {
+        if (selectedTarget == null || progress <= 0) {
+            return;
+        }
+
+        int x = selectedTarget.blockX();
+        int y = selectedTarget.blockY();
+        int z = selectedTarget.blockZ();
+        if (!world.hasBlock(x, y, z)) {
+            return;
+        }
+
+        double eyeY = player.y + FIRST_PERSON_EYE_HEIGHT;
+        if (!world.hasBlock(x, y + 1, z) && eyeY >= y + 0.95) {
+            Polygon topFace = projectFacePolygon(
+                player,
+                cameraYaw,
+                cameraPitch,
+                panelWidth,
+                panelHeight,
+                new Vec3(x, y + 1.0, z),
+                new Vec3(x + 1.0, y + 1.0, z),
+                new Vec3(x + 1.0, y + 1.0, z + 1.0),
+                new Vec3(x, y + 1.0, z + 1.0)
+            );
+            BlockCrackOverlay.draw(g2, topFace, progress);
+        }
+
+        drawBreakingSideIfVisible(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress, x, y, z, x + 1.0, !world.hasBlock(x + 1, y, z),
+            new Vec3(x + 1.0, y + 1.0, z),
+            new Vec3(x + 1.0, y + 1.0, z + 1.0),
+            new Vec3(x + 1.0, y, z + 1.0),
+            new Vec3(x + 1.0, y, z)
+        );
+        drawBreakingSideIfVisible(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress, x, y, z, x, !world.hasBlock(x - 1, y, z),
+            new Vec3(x, y + 1.0, z + 1.0),
+            new Vec3(x, y + 1.0, z),
+            new Vec3(x, y, z),
+            new Vec3(x, y, z + 1.0)
+        );
+        drawBreakingZFaceIfVisible(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress, x, y, z, z + 1.0, !world.hasBlock(x, y, z + 1),
+            new Vec3(x + 1.0, y + 1.0, z + 1.0),
+            new Vec3(x, y + 1.0, z + 1.0),
+            new Vec3(x, y, z + 1.0),
+            new Vec3(x + 1.0, y, z + 1.0)
+        );
+        drawBreakingZFaceIfVisible(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress, x, y, z, z, !world.hasBlock(x, y, z - 1),
+            new Vec3(x, y + 1.0, z),
+            new Vec3(x + 1.0, y + 1.0, z),
+            new Vec3(x + 1.0, y, z),
+            new Vec3(x, y, z)
+        );
+    }
+
     SelectionTarget raycastSelection(World world, Player player, double cameraYaw, double cameraPitch, double interactRange) {
         double eyeX = player.x;
         double eyeY = player.y + FIRST_PERSON_EYE_HEIGHT;
@@ -416,6 +480,68 @@ final class FirstPersonWorldRenderer {
         }
 
         return null;
+    }
+
+    private void drawBreakingSideIfVisible(
+        Graphics2D g2,
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        double progress,
+        int blockX,
+        int blockY,
+        int blockZ,
+        double faceX,
+        boolean faceVisible,
+        Vec3 p1,
+        Vec3 p2,
+        Vec3 p3,
+        Vec3 p4
+    ) {
+        if (!faceVisible) {
+            return;
+        }
+        double faceCenterX = faceX;
+        double faceCenterY = blockY + 0.5;
+        double faceCenterZ = blockZ + 0.5;
+        if ((player.x - faceCenterX) * (faceX > blockX ? 1 : -1) <= 0) {
+            return;
+        }
+        Polygon polygon = projectFacePolygon(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4);
+        BlockCrackOverlay.draw(g2, polygon, progress);
+    }
+
+    private void drawBreakingZFaceIfVisible(
+        Graphics2D g2,
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        double progress,
+        int blockX,
+        int blockY,
+        int blockZ,
+        double faceZ,
+        boolean faceVisible,
+        Vec3 p1,
+        Vec3 p2,
+        Vec3 p3,
+        Vec3 p4
+    ) {
+        if (!faceVisible) {
+            return;
+        }
+        double faceCenterX = blockX + 0.5;
+        double faceCenterY = blockY + 0.5;
+        double faceCenterZ = faceZ;
+        if ((player.z - faceCenterZ) * (faceZ > blockZ ? 1 : -1) <= 0) {
+            return;
+        }
+        Polygon polygon = projectFacePolygon(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4);
+        BlockCrackOverlay.draw(g2, polygon, progress);
     }
 
     private void addVoidFloorFace(
@@ -497,6 +623,41 @@ final class FirstPersonWorldRenderer {
         }
 
         faces.add(new FaceRender(polygon, applyDistanceFog(baseColor, faceDepth, false), faceDepth));
+    }
+
+    private Polygon projectFacePolygon(
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        Vec3 p1,
+        Vec3 p2,
+        Vec3 p3,
+        Vec3 p4
+    ) {
+        List<CameraPoint> clippedPoints = clipToNearPlane(
+            List.of(
+                toCameraPoint(player, cameraYaw, cameraPitch, p1.x(), p1.y(), p1.z()),
+                toCameraPoint(player, cameraYaw, cameraPitch, p2.x(), p2.y(), p2.z()),
+                toCameraPoint(player, cameraYaw, cameraPitch, p3.x(), p3.y(), p3.z()),
+                toCameraPoint(player, cameraYaw, cameraPitch, p4.x(), p4.y(), p4.z())
+            )
+        );
+        if (clippedPoints.size() < 3) {
+            return null;
+        }
+
+        int[] xs = new int[clippedPoints.size()];
+        int[] ys = new int[clippedPoints.size()];
+        for (int index = 0; index < clippedPoints.size(); index += 1) {
+            ScreenPoint screenPoint = projectCameraPoint(clippedPoints.get(index), panelWidth, panelHeight);
+            xs[index] = (int) Math.round(screenPoint.screenX());
+            ys[index] = (int) Math.round(screenPoint.screenY());
+        }
+
+        Polygon polygon = new Polygon(xs, ys, clippedPoints.size());
+        return polygon.getBounds().width <= 0 || polygon.getBounds().height <= 0 ? null : polygon;
     }
 
     private List<CameraPoint> clipToNearPlane(List<CameraPoint> polygon) {

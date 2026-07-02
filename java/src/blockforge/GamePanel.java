@@ -74,6 +74,7 @@ public final class GamePanel extends JPanel {
     private int activeBlockIndex = 0;
     private boolean mouseCaptureActive = false;
     private boolean ignoreWarpedMouseEvent = false;
+    private boolean leftMouseHeld = false;
     private boolean paused = false;
     private boolean autoStepEnabled = false;
     private PauseAction hoveredPauseAction = null;
@@ -82,6 +83,7 @@ public final class GamePanel extends JPanel {
     private final Path savePath = SaveGame.defaultPath();
     private String notice =
         "Sandbox Java voxel: Esc pausa, F6 salva, F9 carica, V cambia camera.";
+    private MiningState miningState;
 
     public GamePanel() {
         setPreferredSize(new Dimension(PANEL_WIDTH, PANEL_HEIGHT));
@@ -123,6 +125,8 @@ public final class GamePanel extends JPanel {
             public void mouseExited(MouseEvent event) {
                 mousePoint.setLocation(-10_000, -10_000);
                 hoveredPauseAction = null;
+                leftMouseHeld = false;
+                resetMiningProgress();
                 if (viewMode == ViewMode.SUPERIOR) {
                     selectedTarget = null;
                 }
@@ -142,9 +146,20 @@ public final class GamePanel extends JPanel {
 
                 handleMouseMove(event);
                 if (SwingUtilities.isLeftMouseButton(event)) {
-                    tryMineSelectedCell();
+                    leftMouseHeld = true;
+                    beginMiningSelectedCell();
                 } else if (SwingUtilities.isRightMouseButton(event)) {
+                    leftMouseHeld = false;
+                    resetMiningProgress();
                     tryPlaceSelectedCell();
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                if (SwingUtilities.isLeftMouseButton(event)) {
+                    leftMouseHeld = false;
+                    resetMiningProgress();
                 }
             }
         };
@@ -172,9 +187,25 @@ public final class GamePanel extends JPanel {
         if (viewMode == ViewMode.SUPERIOR) {
             isometricWorldRenderer.drawWorld(g2, world, player, cameraYaw, VIEW_RADIUS, getWidth(), getHeight());
             isometricWorldRenderer.drawSelection(g2, selectedTarget);
+            if (miningState != null) {
+                isometricWorldRenderer.drawBreakingOverlay(g2, selectedTarget, miningState.progressRatio());
+            }
             isometricWorldRenderer.drawPlayer(g2, player, cameraYaw, getWidth(), getHeight());
         } else {
             firstPersonWorldRenderer.drawWorld(g2, world, player, cameraYaw, cameraPitch, getWidth(), getHeight());
+            if (miningState != null) {
+                firstPersonWorldRenderer.drawBreakingOverlay(
+                    g2,
+                    world,
+                    player,
+                    cameraYaw,
+                    cameraPitch,
+                    getWidth(),
+                    getHeight(),
+                    selectedTarget,
+                    miningState.progressRatio()
+                );
+            }
             firstPersonWorldRenderer.drawCrosshair(g2, getWidth(), getHeight());
         }
         drawHud(g2);
@@ -208,10 +239,12 @@ public final class GamePanel extends JPanel {
         updateMovement(delta);
         applyGravity(delta);
         updateSelectionTarget();
+        updateMining(delta);
 
         if (player.y < VOID_DEATH_Y) {
             deathCount += 1;
             selectedTarget = null;
+            resetMiningProgress();
             notice = "Sei caduto nel vuoto. Respawn...";
             respawnCountdown = RESPAWN_DELAY;
             player.verticalVelocity = -2.0;
@@ -686,27 +719,97 @@ public final class GamePanel extends JPanel {
         return dx * dx + dy * dy + dz * dz <= INTERACT_RANGE * INTERACT_RANGE;
     }
 
-    private void tryMineSelectedCell() {
+    private void beginMiningSelectedCell() {
         if (paused || respawnCountdown > 0) {
             return;
         }
         if (selectedTarget == null) {
+            resetMiningProgress();
             notice = "Nessun blocco selezionato.";
             return;
         }
         if (!selectedTarget.inReach()) {
+            resetMiningProgress();
             notice = "Blocco troppo lontano.";
             return;
         }
 
-        if (world.removeBlock(selectedTarget.blockX(), selectedTarget.blockY(), selectedTarget.blockZ())) {
-            notice = "Blocco rimosso.";
-            updateSelectionTarget();
+        BlockType targetBlock = world.blockAt(selectedTarget.blockX(), selectedTarget.blockY(), selectedTarget.blockZ());
+        if (targetBlock == null) {
+            resetMiningProgress();
+            notice = "Questo blocco non puo essere rimosso.";
+            return;
+        }
+
+        if (
+            miningState != null &&
+                miningState.matches(selectedTarget.blockX(), selectedTarget.blockY(), selectedTarget.blockZ(), targetBlock)
+        ) {
+            return;
+        }
+
+        miningState = new MiningState(
+            selectedTarget.blockX(),
+            selectedTarget.blockY(),
+            selectedTarget.blockZ(),
+            targetBlock,
+            0
+        );
+        notice = "Scavo " + targetBlock.label() + "...";
+    }
+
+    private void updateMining(double delta) {
+        if (!leftMouseHeld || miningState == null) {
+            return;
+        }
+        if (paused || respawnCountdown > 0) {
+            resetMiningProgress();
+            return;
+        }
+        if (selectedTarget == null || !selectedTarget.inReach()) {
+            resetMiningProgress();
+            return;
+        }
+        if (
+            selectedTarget.blockX() != miningState.blockX() ||
+                selectedTarget.blockY() != miningState.blockY() ||
+                selectedTarget.blockZ() != miningState.blockZ()
+        ) {
+            beginMiningSelectedCell();
+            return;
+        }
+
+        BlockType liveBlock = world.blockAt(miningState.blockX(), miningState.blockY(), miningState.blockZ());
+        if (liveBlock != miningState.blockType()) {
+            resetMiningProgress();
+            return;
+        }
+
+        double nextProgress = Math.min(
+            miningState.progressSeconds() + delta,
+            miningState.blockType().breakDurationSeconds()
+        );
+        miningState = miningState.withProgress(nextProgress);
+
+        if (nextProgress < miningState.blockType().breakDurationSeconds()) {
             repaint();
             return;
         }
 
-        notice = "Questo blocco non puo essere rimosso.";
+        if (world.removeBlock(miningState.blockX(), miningState.blockY(), miningState.blockZ())) {
+            notice = "Blocco rimosso: " + miningState.blockType().label() + ".";
+        } else {
+            notice = "Questo blocco non puo essere rimosso.";
+        }
+
+        leftMouseHeld = false;
+        resetMiningProgress();
+        updateSelectionTarget();
+        repaint();
+    }
+
+    private void resetMiningProgress() {
+        miningState = null;
     }
 
     private void tryPlaceSelectedCell() {
@@ -791,6 +894,11 @@ public final class GamePanel extends JPanel {
                 selectedTarget.inReach() ? "in portata" : "fuori portata"
             );
         }
+        String miningSummary = "Scavo: -";
+        if (miningState != null) {
+            double progress = miningState.progressRatio() * 100.0;
+            miningSummary = "Scavo: %s %.0f%%".formatted(miningState.blockType().label(), progress);
+        }
 
         g2.setFont(getFont().deriveFont(Font.PLAIN, 15f));
         g2.setColor(new Color(232, 238, 250));
@@ -800,11 +908,12 @@ public final class GamePanel extends JPanel {
         g2.drawString("Rotazione: %.0f deg".formatted(Math.toDegrees(normalizeAngle(cameraYaw))), 42, 126);
         g2.drawString("Blocco: " + hotbarBlocks[activeBlockIndex].label(), 42, 148);
         g2.drawString(targetSummary, 42, 170);
+        g2.drawString(miningSummary, 42, 192);
 
         String controlSummary = viewMode == ViewMode.SUPERIOR
-            ? "V cambia vista, Q/E ruota, click sx rimuove, dx piazza"
-            : "V cambia vista, mouse o frecce su/giu guarda, click sx/dx interagisci";
-        g2.drawString(controlSummary, 42, 192);
+            ? "V cambia vista, Q/E ruota, tieni click sx per scavare, dx piazza"
+            : "V cambia vista, mouse o frecce su/giu guarda, tieni click sx per scavare";
+        g2.drawString(controlSummary, 42, 214);
 
         g2.setColor(new Color(255, 240, 205));
         g2.drawString(notice, 42, getHeight() - 28);
@@ -955,6 +1064,8 @@ public final class GamePanel extends JPanel {
         this.paused = paused;
         pressedKeys.clear();
         jumpQueued = false;
+        leftMouseHeld = false;
+        resetMiningProgress();
         selectedTarget = null;
         hoveredPauseAction = null;
         mousePoint.setLocation(-10_000, -10_000);
@@ -1006,6 +1117,8 @@ public final class GamePanel extends JPanel {
             respawnCountdown = 0;
             pressedKeys.clear();
             jumpQueued = false;
+            leftMouseHeld = false;
+            resetMiningProgress();
             setFirstPersonMouseCapture(!paused && viewMode == ViewMode.FIRST_PERSON);
             updateSelectionTarget();
             notice = "Salvataggio caricato.";
@@ -1170,6 +1283,20 @@ public final class GamePanel extends JPanel {
         SAVE,
         LOAD,
         TOGGLE_AUTO_STEP
+    }
+
+    private record MiningState(int blockX, int blockY, int blockZ, BlockType blockType, double progressSeconds) {
+        private boolean matches(int x, int y, int z, BlockType type) {
+            return blockX == x && blockY == y && blockZ == z && blockType == type;
+        }
+
+        private double progressRatio() {
+            return Math.min(1.0, progressSeconds / blockType.breakDurationSeconds());
+        }
+
+        private MiningState withProgress(double nextProgress) {
+            return new MiningState(blockX, blockY, blockZ, blockType, nextProgress);
+        }
     }
 
     private record HorizontalPush(double x, double z) {

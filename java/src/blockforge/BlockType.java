@@ -3,18 +3,20 @@ package blockforge;
 import java.awt.Color;
 
 public enum BlockType {
-    GRASS("Erba", new Color(108, 185, 91)),
-    DIRT("Terra", new Color(122, 81, 52)),
-    STONE("Pietra", new Color(141, 149, 160)),
-    WOOD("Legno", new Color(156, 106, 54)),
-    GLOW("Luce", new Color(246, 214, 110));
+    GRASS("Erba", new Color(108, 185, 91), 0.45),
+    DIRT("Terra", new Color(122, 81, 52), 0.60),
+    STONE("Pietra", new Color(141, 149, 160), 1.65),
+    WOOD("Legno", new Color(156, 106, 54), 1.10),
+    GLOW("Luce", new Color(246, 214, 110), 0.80);
 
     private final String label;
     private final Color topColor;
+    private final double breakDurationSeconds;
 
-    BlockType(String label, Color topColor) {
+    BlockType(String label, Color topColor, double breakDurationSeconds) {
         this.label = label;
         this.topColor = topColor;
+        this.breakDurationSeconds = breakDurationSeconds;
     }
 
     public String label() {
@@ -23,6 +25,10 @@ public enum BlockType {
 
     public Color topColor() {
         return topColor;
+    }
+
+    public double breakDurationSeconds() {
+        return breakDurationSeconds;
     }
 
     public Color leftColor() {

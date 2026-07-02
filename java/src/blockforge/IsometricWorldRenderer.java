@@ -103,6 +103,13 @@ final class IsometricWorldRenderer {
         g2.drawPolygon(selectedTarget.topFace());
     }
 
+    void drawBreakingOverlay(Graphics2D g2, SelectionTarget selectedTarget, double progress) {
+        if (selectedTarget == null || selectedTarget.topFace() == null) {
+            return;
+        }
+        BlockCrackOverlay.draw(g2, selectedTarget.topFace(), progress);
+    }
+
     void drawPlayer(Graphics2D g2, Player player, double cameraYaw, int panelWidth, int panelHeight) {
         Point2D.Double feet = project(player, cameraYaw, panelWidth, panelHeight, player.x, player.y, player.z);
         Point2D.Double head = project(player, cameraYaw, panelWidth, panelHeight, player.x, player.y + PLAYER_HEIGHT, player.z);
