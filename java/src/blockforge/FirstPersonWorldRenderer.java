@@ -378,6 +378,28 @@ final class FirstPersonWorldRenderer {
         g2.drawLine(centerX, centerY - 10, centerX, centerY + 10);
     }
 
+    void drawBlockBreakDebris(
+        Graphics2D g2,
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        List<BlockBreakDebris> debrisParticles
+    ) {
+        List<FaceRender> faces = new ArrayList<>();
+        for (BlockBreakDebris debris : debrisParticles) {
+            addDebrisCubeFaces(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, debris);
+        }
+        faces.sort(Comparator.comparingDouble(FaceRender::depth).reversed());
+        for (FaceRender face : faces) {
+            g2.setColor(face.color());
+            g2.fillPolygon(face.polygon());
+            g2.setColor(new Color(255, 255, 255, 12));
+            g2.drawPolygon(face.polygon());
+        }
+    }
+
     void drawBreakingOverlay(
         Graphics2D g2,
         World world,
@@ -652,6 +674,108 @@ final class FirstPersonWorldRenderer {
         );
     }
 
+    private void addDebrisCubeFaces(
+        List<FaceRender> faces,
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        BlockBreakDebris debris
+    ) {
+        double halfSize = debris.size() * 0.5;
+        double minX = debris.x() - halfSize;
+        double maxX = debris.x() + halfSize;
+        double minY = debris.y() - halfSize;
+        double maxY = debris.y() + halfSize;
+        double minZ = debris.z() - halfSize;
+        double maxZ = debris.z() + halfSize;
+        Color topColor = fade(debris.blockType().topColor(), debris.lifeRatio());
+        Color leftColor = fade(debris.blockType().leftColor(), debris.lifeRatio());
+        Color rightColor = fade(debris.blockType().rightColor(), debris.lifeRatio());
+
+        addFace(
+            faces,
+            player,
+            cameraYaw,
+            cameraPitch,
+            panelWidth,
+            panelHeight,
+            new Vec3(minX, maxY, minZ),
+            new Vec3(maxX, maxY, minZ),
+            new Vec3(maxX, maxY, maxZ),
+            new Vec3(minX, maxY, maxZ),
+            topColor,
+            debris.x(),
+            maxY,
+            debris.z()
+        );
+        addFace(
+            faces,
+            player,
+            cameraYaw,
+            cameraPitch,
+            panelWidth,
+            panelHeight,
+            new Vec3(maxX, maxY, minZ),
+            new Vec3(maxX, maxY, maxZ),
+            new Vec3(maxX, minY, maxZ),
+            new Vec3(maxX, minY, minZ),
+            rightColor,
+            maxX,
+            debris.y(),
+            debris.z()
+        );
+        addFace(
+            faces,
+            player,
+            cameraYaw,
+            cameraPitch,
+            panelWidth,
+            panelHeight,
+            new Vec3(minX, maxY, maxZ),
+            new Vec3(maxX, maxY, maxZ),
+            new Vec3(maxX, minY, maxZ),
+            new Vec3(minX, minY, maxZ),
+            leftColor,
+            debris.x(),
+            debris.y(),
+            maxZ
+        );
+        addFace(
+            faces,
+            player,
+            cameraYaw,
+            cameraPitch,
+            panelWidth,
+            panelHeight,
+            new Vec3(minX, maxY, maxZ),
+            new Vec3(minX, maxY, minZ),
+            new Vec3(minX, minY, minZ),
+            new Vec3(minX, minY, maxZ),
+            leftColor,
+            minX,
+            debris.y(),
+            debris.z()
+        );
+        addFace(
+            faces,
+            player,
+            cameraYaw,
+            cameraPitch,
+            panelWidth,
+            panelHeight,
+            new Vec3(minX, maxY, minZ),
+            new Vec3(maxX, maxY, minZ),
+            new Vec3(maxX, minY, minZ),
+            new Vec3(minX, minY, minZ),
+            rightColor,
+            debris.x(),
+            debris.y(),
+            minZ
+        );
+    }
+
     private List<CameraPoint> clipToNearPlane(List<CameraPoint> polygon) {
         List<CameraPoint> clipped = new ArrayList<>();
         CameraPoint previousPoint = polygon.get(polygon.size() - 1);
@@ -788,6 +912,10 @@ final class FirstPersonWorldRenderer {
 
     private double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private Color fade(Color color, double lifeRatio) {
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), (int) Math.round(255 * lifeRatio));
     }
 
     private record Vec3(double x, double y, double z) {

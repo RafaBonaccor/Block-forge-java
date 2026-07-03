@@ -24,6 +24,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -52,10 +53,14 @@ public final class GamePanel extends JPanel {
     private static final double FIRST_PERSON_EYE_HEIGHT = 1.55;
     private static final double FIRST_PERSON_PITCH_LIMIT = 1.48;
     private static final int VIEW_RADIUS = 13;
+    private static final int BLOCK_BREAK_DEBRIS_COUNT = 12;
+    private static final double BLOCK_BREAK_DEBRIS_LIFETIME = 0.5;
+    private static final double BLOCK_BREAK_DEBRIS_GRAVITY = 9.5;
 
     private World world = new World(22);
     private final Player player = new Player();
     private final Set<Integer> pressedKeys = new HashSet<>();
+    private final List<BlockBreakDebris> blockBreakDebris = new ArrayList<>();
     private final BlockType[] hotbarBlocks = BlockType.values();
     private final Point mousePoint = new Point(-10_000, -10_000);
     private final Cursor defaultCursor = Cursor.getDefaultCursor();
@@ -186,6 +191,7 @@ public final class GamePanel extends JPanel {
         drawSky(g2);
         if (viewMode == ViewMode.SUPERIOR) {
             isometricWorldRenderer.drawWorld(g2, world, player, cameraYaw, VIEW_RADIUS, getWidth(), getHeight());
+            isometricWorldRenderer.drawBlockBreakDebris(g2, player, cameraYaw, getWidth(), getHeight(), blockBreakDebris);
             isometricWorldRenderer.drawSelection(g2, selectedTarget);
             if (miningState != null) {
                 isometricWorldRenderer.drawBreakingOverlay(g2, selectedTarget, miningState.progressRatio());
@@ -193,6 +199,15 @@ public final class GamePanel extends JPanel {
             isometricWorldRenderer.drawPlayer(g2, player, cameraYaw, getWidth(), getHeight());
         } else {
             firstPersonWorldRenderer.drawWorld(g2, world, player, cameraYaw, cameraPitch, getWidth(), getHeight());
+            firstPersonWorldRenderer.drawBlockBreakDebris(
+                g2,
+                player,
+                cameraYaw,
+                cameraPitch,
+                getWidth(),
+                getHeight(),
+                blockBreakDebris
+            );
             if (miningState != null) {
                 firstPersonWorldRenderer.drawBreakingOverlay(
                     g2,
@@ -238,6 +253,7 @@ public final class GamePanel extends JPanel {
         resolveHorizontalPenetration();
         updateMovement(delta);
         applyGravity(delta);
+        updateBlockBreakDebris(delta);
         updateSelectionTarget();
         updateMining(delta);
 
@@ -797,6 +813,12 @@ public final class GamePanel extends JPanel {
         }
 
         if (world.removeBlock(miningState.blockX(), miningState.blockY(), miningState.blockZ())) {
+            spawnBlockBreakDebris(
+                miningState.blockX(),
+                miningState.blockY(),
+                miningState.blockZ(),
+                miningState.blockType()
+            );
             notice = "Blocco rimosso: " + miningState.blockType().label() + ".";
         } else {
             notice = "Questo blocco non puo essere rimosso.";
@@ -810,6 +832,45 @@ public final class GamePanel extends JPanel {
 
     private void resetMiningProgress() {
         miningState = null;
+    }
+
+    private void updateBlockBreakDebris(double delta) {
+        for (int index = blockBreakDebris.size() - 1; index >= 0; index -= 1) {
+            BlockBreakDebris debris = blockBreakDebris.get(index);
+            debris.update(delta, BLOCK_BREAK_DEBRIS_GRAVITY);
+            if (!debris.isAlive()) {
+                blockBreakDebris.remove(index);
+            }
+        }
+    }
+
+    private void spawnBlockBreakDebris(int blockX, int blockY, int blockZ, BlockType blockType) {
+        double centerX = blockX + 0.5;
+        double centerY = blockY + 0.5;
+        double centerZ = blockZ + 0.5;
+
+        for (int index = 0; index < BLOCK_BREAK_DEBRIS_COUNT; index += 1) {
+            double offsetX = (Math.random() - 0.5) * 0.45;
+            double offsetY = (Math.random() - 0.5) * 0.45;
+            double offsetZ = (Math.random() - 0.5) * 0.45;
+            double velocityX = (Math.random() - 0.5) * 2.2;
+            double velocityY = 1.2 + Math.random() * 1.4;
+            double velocityZ = (Math.random() - 0.5) * 2.2;
+            double size = 0.12 + Math.random() * 0.08;
+            blockBreakDebris.add(
+                new BlockBreakDebris(
+                    blockType,
+                    centerX + offsetX,
+                    centerY + offsetY,
+                    centerZ + offsetZ,
+                    velocityX,
+                    velocityY,
+                    velocityZ,
+                    size,
+                    BLOCK_BREAK_DEBRIS_LIFETIME
+                )
+            );
+        }
     }
 
     private void tryPlaceSelectedCell() {

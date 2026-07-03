@@ -103,6 +103,19 @@ final class IsometricWorldRenderer {
         g2.drawPolygon(selectedTarget.topFace());
     }
 
+    void drawBlockBreakDebris(
+        Graphics2D g2,
+        Player player,
+        double cameraYaw,
+        int panelWidth,
+        int panelHeight,
+        List<BlockBreakDebris> debrisParticles
+    ) {
+        for (BlockBreakDebris debris : debrisParticles) {
+            drawDebrisCube(g2, player, cameraYaw, panelWidth, panelHeight, debris);
+        }
+    }
+
     void drawBreakingOverlay(Graphics2D g2, SelectionTarget selectedTarget, double progress) {
         if (selectedTarget == null || selectedTarget.topFace() == null) {
             return;
@@ -218,6 +231,53 @@ final class IsometricWorldRenderer {
         }
     }
 
+    private void drawDebrisCube(
+        Graphics2D g2,
+        Player player,
+        double cameraYaw,
+        int panelWidth,
+        int panelHeight,
+        BlockBreakDebris debris
+    ) {
+        double halfSize = debris.size() * 0.5;
+        double minX = debris.x() - halfSize;
+        double maxX = debris.x() + halfSize;
+        double minY = debris.y() - halfSize;
+        double maxY = debris.y() + halfSize;
+        double minZ = debris.z() - halfSize;
+        double maxZ = debris.z() + halfSize;
+
+        Point2D.Double topNw = project(player, cameraYaw, panelWidth, panelHeight, minX, maxY, minZ);
+        Point2D.Double topNe = project(player, cameraYaw, panelWidth, panelHeight, maxX, maxY, minZ);
+        Point2D.Double topSe = project(player, cameraYaw, panelWidth, panelHeight, maxX, maxY, maxZ);
+        Point2D.Double topSw = project(player, cameraYaw, panelWidth, panelHeight, minX, maxY, maxZ);
+        Point2D.Double baseNe = project(player, cameraYaw, panelWidth, panelHeight, maxX, minY, minZ);
+        Point2D.Double baseSe = project(player, cameraYaw, panelWidth, panelHeight, maxX, minY, maxZ);
+        Point2D.Double baseSw = project(player, cameraYaw, panelWidth, panelHeight, minX, minY, maxZ);
+        Point2D.Double baseNw = project(player, cameraYaw, panelWidth, panelHeight, minX, minY, minZ);
+
+        BlockType blockType = debris.blockType();
+        Color topColor = fade(blockType.topColor(), debris.lifeRatio());
+        Color leftColor = fade(blockType.leftColor(), debris.lifeRatio());
+        Color rightColor = fade(blockType.rightColor(), debris.lifeRatio());
+
+        Polygon eastFace = polygon(topNe, topSe, baseSe, baseNe);
+        g2.setColor(rightColor);
+        g2.fillPolygon(eastFace);
+        Polygon southFace = polygon(topSw, topSe, baseSe, baseSw);
+        g2.setColor(leftColor);
+        g2.fillPolygon(southFace);
+        Polygon westFace = polygon(topNw, topSw, baseSw, baseNw);
+        g2.setColor(leftColor);
+        g2.fillPolygon(westFace);
+        Polygon northFace = polygon(topNw, topNe, baseNe, baseNw);
+        g2.setColor(rightColor);
+        g2.fillPolygon(northFace);
+        Polygon topFace = polygon(topNw, topNe, topSe, topSw);
+        g2.setColor(topColor);
+        g2.fillPolygon(topFace);
+    }
+
     private double depthForBlock(Player player, double cameraYaw, double worldX, double worldY, double worldZ) {
         double rotatedX = rotatedX(player, cameraYaw, worldX, worldZ);
         double rotatedZ = rotatedZ(player, cameraYaw, worldX, worldZ);
@@ -280,5 +340,9 @@ final class IsometricWorldRenderer {
             ys[index] = (int) Math.round(points[index].y);
         }
         return new Polygon(xs, ys, points.length);
+    }
+
+    private Color fade(Color color, double lifeRatio) {
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), (int) Math.round(255 * lifeRatio));
     }
 }
