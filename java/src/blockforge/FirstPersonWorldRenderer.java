@@ -3,6 +3,7 @@ package blockforge;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.Polygon;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -401,7 +402,7 @@ final class FirstPersonWorldRenderer {
 
         double eyeY = player.y + FIRST_PERSON_EYE_HEIGHT;
         if (!world.hasBlock(x, y + 1, z) && eyeY >= y + 0.95) {
-            Polygon topFace = projectFacePolygon(
+            BlockCrackOverlay.ScreenQuad topFace = projectFaceQuad(
                 player,
                 cameraYaw,
                 cameraPitch,
@@ -509,7 +510,7 @@ final class FirstPersonWorldRenderer {
         if ((player.x - faceCenterX) * (faceX > blockX ? 1 : -1) <= 0) {
             return;
         }
-        Polygon polygon = projectFacePolygon(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4);
+        BlockCrackOverlay.ScreenQuad polygon = projectFaceQuad(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4);
         BlockCrackOverlay.draw(g2, polygon, progress);
     }
 
@@ -540,7 +541,7 @@ final class FirstPersonWorldRenderer {
         if ((player.z - faceCenterZ) * (faceZ > blockZ ? 1 : -1) <= 0) {
             return;
         }
-        Polygon polygon = projectFacePolygon(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4);
+        BlockCrackOverlay.ScreenQuad polygon = projectFaceQuad(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4);
         BlockCrackOverlay.draw(g2, polygon, progress);
     }
 
@@ -625,7 +626,7 @@ final class FirstPersonWorldRenderer {
         faces.add(new FaceRender(polygon, applyDistanceFog(baseColor, faceDepth, false), faceDepth));
     }
 
-    private Polygon projectFacePolygon(
+    private BlockCrackOverlay.ScreenQuad projectFaceQuad(
         Player player,
         double cameraYaw,
         double cameraPitch,
@@ -636,28 +637,19 @@ final class FirstPersonWorldRenderer {
         Vec3 p3,
         Vec3 p4
     ) {
-        List<CameraPoint> clippedPoints = clipToNearPlane(
-            List.of(
-                toCameraPoint(player, cameraYaw, cameraPitch, p1.x(), p1.y(), p1.z()),
-                toCameraPoint(player, cameraYaw, cameraPitch, p2.x(), p2.y(), p2.z()),
-                toCameraPoint(player, cameraYaw, cameraPitch, p3.x(), p3.y(), p3.z()),
-                toCameraPoint(player, cameraYaw, cameraPitch, p4.x(), p4.y(), p4.z())
-            )
-        );
-        if (clippedPoints.size() < 3) {
+        ProjectedPoint pp1 = projectFirstPerson(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1.x(), p1.y(), p1.z());
+        ProjectedPoint pp2 = projectFirstPerson(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p2.x(), p2.y(), p2.z());
+        ProjectedPoint pp3 = projectFirstPerson(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p3.x(), p3.y(), p3.z());
+        ProjectedPoint pp4 = projectFirstPerson(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p4.x(), p4.y(), p4.z());
+        if (pp1 == null || pp2 == null || pp3 == null || pp4 == null) {
             return null;
         }
-
-        int[] xs = new int[clippedPoints.size()];
-        int[] ys = new int[clippedPoints.size()];
-        for (int index = 0; index < clippedPoints.size(); index += 1) {
-            ScreenPoint screenPoint = projectCameraPoint(clippedPoints.get(index), panelWidth, panelHeight);
-            xs[index] = (int) Math.round(screenPoint.screenX());
-            ys[index] = (int) Math.round(screenPoint.screenY());
-        }
-
-        Polygon polygon = new Polygon(xs, ys, clippedPoints.size());
-        return polygon.getBounds().width <= 0 || polygon.getBounds().height <= 0 ? null : polygon;
+        return new BlockCrackOverlay.ScreenQuad(
+            new Point((int) Math.round(pp1.screenX()), (int) Math.round(pp1.screenY())),
+            new Point((int) Math.round(pp2.screenX()), (int) Math.round(pp2.screenY())),
+            new Point((int) Math.round(pp3.screenX()), (int) Math.round(pp3.screenY())),
+            new Point((int) Math.round(pp4.screenX()), (int) Math.round(pp4.screenY()))
+        );
     }
 
     private List<CameraPoint> clipToNearPlane(List<CameraPoint> polygon) {

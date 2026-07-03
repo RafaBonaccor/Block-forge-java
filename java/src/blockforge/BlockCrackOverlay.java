@@ -3,6 +3,7 @@ package blockforge;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.Polygon;
 import java.awt.Rectangle;
 
@@ -29,10 +30,15 @@ final class BlockCrackOverlay {
     }
 
     static void draw(Graphics2D g2, Polygon polygon, double progress) {
-        if (polygon == null || progress <= 0) {
+        draw(g2, ScreenQuad.fromPolygon(polygon), progress);
+    }
+
+    static void draw(Graphics2D g2, ScreenQuad quad, double progress) {
+        if (quad == null || progress <= 0) {
             return;
         }
 
+        Polygon polygon = quad.asPolygon();
         Rectangle bounds = polygon.getBounds();
         if (bounds.width <= 2 || bounds.height <= 2) {
             return;
@@ -52,11 +58,9 @@ final class BlockCrackOverlay {
 
         for (int index = 0; index < segmentCount; index += 1) {
             double[] segment = SEGMENTS[index];
-            int x1 = bounds.x + (int) Math.round(bounds.width * segment[0]);
-            int y1 = bounds.y + (int) Math.round(bounds.height * segment[1]);
-            int x2 = bounds.x + (int) Math.round(bounds.width * segment[2]);
-            int y2 = bounds.y + (int) Math.round(bounds.height * segment[3]);
-            overlay.drawLine(x1, y1, x2, y2);
+            Point start = quad.sample(segment[0], segment[1]);
+            Point end = quad.sample(segment[2], segment[3]);
+            overlay.drawLine(start.x, start.y, end.x, end.y);
         }
 
         overlay.setColor(new Color(255, 255, 255, (int) Math.round(24 + progress * 32)));
@@ -67,5 +71,42 @@ final class BlockCrackOverlay {
 
     private static double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    record ScreenQuad(Point nw, Point ne, Point se, Point sw) {
+        static ScreenQuad fromPolygon(Polygon polygon) {
+            if (polygon == null || polygon.npoints != 4) {
+                return null;
+            }
+            return new ScreenQuad(
+                new Point(polygon.xpoints[0], polygon.ypoints[0]),
+                new Point(polygon.xpoints[1], polygon.ypoints[1]),
+                new Point(polygon.xpoints[2], polygon.ypoints[2]),
+                new Point(polygon.xpoints[3], polygon.ypoints[3])
+            );
+        }
+
+        Polygon asPolygon() {
+            return new Polygon(
+                new int[] {nw.x, ne.x, se.x, sw.x},
+                new int[] {nw.y, ne.y, se.y, sw.y},
+                4
+            );
+        }
+
+        Point sample(double u, double v) {
+            double topX = lerp(nw.x, ne.x, u);
+            double topY = lerp(nw.y, ne.y, u);
+            double bottomX = lerp(sw.x, se.x, u);
+            double bottomY = lerp(sw.y, se.y, u);
+            return new Point(
+                (int) Math.round(lerp(topX, bottomX, v)),
+                (int) Math.round(lerp(topY, bottomY, v))
+            );
+        }
+
+        private static double lerp(double start, double end, double amount) {
+            return start + (end - start) * amount;
+        }
     }
 }
