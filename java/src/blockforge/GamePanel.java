@@ -56,6 +56,7 @@ public final class GamePanel extends JPanel {
     private static final int BLOCK_BREAK_DEBRIS_COUNT = 12;
     private static final double BLOCK_BREAK_DEBRIS_LIFETIME = 0.5;
     private static final double BLOCK_BREAK_DEBRIS_GRAVITY = 9.5;
+    private static final double WATER_UPDATE_INTERVAL = 0.18;
 
     private World world = new World(22);
     private final Player player = new Player();
@@ -74,6 +75,7 @@ public final class GamePanel extends JPanel {
     private double cameraYaw = Math.toRadians(35);
     private double cameraPitch = -0.1;
     private double respawnCountdown = 0;
+    private double waterUpdateAccumulator = 0;
     private boolean jumpQueued = false;
     private int deathCount = 0;
     private int activeBlockIndex = 0;
@@ -189,38 +191,44 @@ public final class GamePanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
         drawSky(g2);
+        SelectionTarget breakingTarget = currentMiningTarget();
         if (viewMode == ViewMode.SUPERIOR) {
-            isometricWorldRenderer.drawWorld(g2, world, player, cameraYaw, VIEW_RADIUS, getWidth(), getHeight());
-            isometricWorldRenderer.drawBlockBreakDebris(g2, player, cameraYaw, getWidth(), getHeight(), blockBreakDebris);
+            isometricWorldRenderer.drawWorld(
+                g2,
+                world,
+                player,
+                cameraYaw,
+                VIEW_RADIUS,
+                getWidth(),
+                getHeight(),
+                blockBreakDebris,
+                breakingTarget,
+                miningState == null ? 0 : miningState.progressRatio()
+            );
             isometricWorldRenderer.drawSelection(g2, selectedTarget);
-            if (miningState != null) {
-                isometricWorldRenderer.drawBreakingOverlay(g2, selectedTarget, miningState.progressRatio());
-            }
             isometricWorldRenderer.drawPlayer(g2, player, cameraYaw, getWidth(), getHeight());
         } else {
-            firstPersonWorldRenderer.drawWorld(g2, world, player, cameraYaw, cameraPitch, getWidth(), getHeight());
-            firstPersonWorldRenderer.drawBlockBreakDebris(
+            firstPersonWorldRenderer.drawWorld(
+                g2,
+                world,
+                player,
+                cameraYaw,
+                cameraPitch,
+                getWidth(),
+                getHeight(),
+                blockBreakDebris,
+                breakingTarget,
+                miningState == null ? 0 : miningState.progressRatio()
+            );
+            firstPersonWorldRenderer.drawSelection(
                 g2,
                 player,
                 cameraYaw,
                 cameraPitch,
                 getWidth(),
                 getHeight(),
-                blockBreakDebris
+                selectedTarget
             );
-            if (miningState != null) {
-                firstPersonWorldRenderer.drawBreakingOverlay(
-                    g2,
-                    world,
-                    player,
-                    cameraYaw,
-                    cameraPitch,
-                    getWidth(),
-                    getHeight(),
-                    selectedTarget,
-                    miningState.progressRatio()
-                );
-            }
             firstPersonWorldRenderer.drawCrosshair(g2, getWidth(), getHeight());
         }
         drawHud(g2);
@@ -254,6 +262,11 @@ public final class GamePanel extends JPanel {
         updateMovement(delta);
         applyGravity(delta);
         updateBlockBreakDebris(delta);
+        waterUpdateAccumulator += delta;
+        if (waterUpdateAccumulator >= WATER_UPDATE_INTERVAL) {
+            waterUpdateAccumulator %= WATER_UPDATE_INTERVAL;
+            world.simulateWater();
+        }
         updateSelectionTarget();
         updateMining(delta);
 
@@ -460,7 +473,7 @@ public final class GamePanel extends JPanel {
                     continue;
                 }
                 for (int y = minBlockY; y <= maxBlockY; y += 1) {
-                    if (!world.hasBlock(x, y, z)) {
+                    if (!world.hasSolidBlock(x, y, z)) {
                         continue;
                     }
 
@@ -515,7 +528,7 @@ public final class GamePanel extends JPanel {
         int maxBlockY = Math.min(world.maxBlockY(), (int) Math.floor(maxTopY - 1.0 + COLLISION_EPSILON));
 
         for (int y = maxBlockY; y >= world.minBlockY(); y -= 1) {
-            if (world.hasBlock(cellX, y, cellZ)) {
+            if (world.hasSolidBlock(cellX, y, cellZ)) {
                 return y + 1.0;
             }
         }
@@ -578,7 +591,7 @@ public final class GamePanel extends JPanel {
         for (int blockX = startX; blockX <= endX; blockX += 1) {
             for (int blockY = startY; blockY <= endY; blockY += 1) {
                 for (int blockZ = startZ; blockZ <= endZ; blockZ += 1) {
-                    if (!world.hasBlock(blockX, blockY, blockZ)) {
+                    if (!world.hasSolidBlock(blockX, blockY, blockZ)) {
                         continue;
                     }
                     if (!verticalOverlapsBlock(bodyMinY, bodyMaxY, blockY)) {
@@ -739,99 +752,115 @@ public final class GamePanel extends JPanel {
         if (paused || respawnCountdown > 0) {
             return;
         }
-        if (selectedTarget == null) {
-            resetMiningProgress();
-            notice = "Nessun blocco selezionato.";
-            return;
-        }
-        if (!selectedTarget.inReach()) {
-            resetMiningProgress();
-            notice = "Blocco troppo lontano.";
-            return;
-        }
-
-        BlockType targetBlock = world.blockAt(selectedTarget.blockX(), selectedTarget.blockY(), selectedTarget.blockZ());
-        if (targetBlock == null) {
-            resetMiningProgress();
-            notice = "Questo blocco non puo essere rimosso.";
-            return;
-        }
-
-        if (
-            miningState != null &&
-                miningState.matches(selectedTarget.blockX(), selectedTarget.blockY(), selectedTarget.blockZ(), targetBlock)
-        ) {
-            return;
-        }
-
-        miningState = new MiningState(
-            selectedTarget.blockX(),
-            selectedTarget.blockY(),
-            selectedTarget.blockZ(),
-            targetBlock,
-            0
-        );
-        notice = "Scavo " + targetBlock.label() + "...";
+        syncMiningTarget(true);
     }
 
     private void updateMining(double delta) {
-        if (!leftMouseHeld || miningState == null) {
+        if (!leftMouseHeld) {
+            resetMiningProgress();
             return;
         }
         if (paused || respawnCountdown > 0) {
             resetMiningProgress();
             return;
         }
-        if (selectedTarget == null || !selectedTarget.inReach()) {
-            resetMiningProgress();
-            return;
-        }
-        if (
-            selectedTarget.blockX() != miningState.blockX() ||
-                selectedTarget.blockY() != miningState.blockY() ||
-                selectedTarget.blockZ() != miningState.blockZ()
-        ) {
-            beginMiningSelectedCell();
+        if (!syncMiningTarget(false)) {
             return;
         }
 
-        BlockType liveBlock = world.blockAt(miningState.blockX(), miningState.blockY(), miningState.blockZ());
-        if (liveBlock != miningState.blockType()) {
+        MiningState activeMining = miningState;
+        BlockType liveBlock = world.blockAt(activeMining.blockX(), activeMining.blockY(), activeMining.blockZ());
+        if (liveBlock != activeMining.blockType()) {
             resetMiningProgress();
             return;
         }
 
         double nextProgress = Math.min(
-            miningState.progressSeconds() + delta,
-            miningState.blockType().breakDurationSeconds()
+            activeMining.progressSeconds() + delta,
+            activeMining.blockType().breakDurationSeconds()
         );
-        miningState = miningState.withProgress(nextProgress);
+        miningState = activeMining.withProgress(nextProgress);
 
-        if (nextProgress < miningState.blockType().breakDurationSeconds()) {
-            repaint();
+        if (nextProgress < activeMining.blockType().breakDurationSeconds()) {
             return;
         }
 
-        if (world.removeBlock(miningState.blockX(), miningState.blockY(), miningState.blockZ())) {
+        if (world.removeBlock(activeMining.blockX(), activeMining.blockY(), activeMining.blockZ())) {
             spawnBlockBreakDebris(
-                miningState.blockX(),
-                miningState.blockY(),
-                miningState.blockZ(),
-                miningState.blockType()
+                activeMining.blockX(),
+                activeMining.blockY(),
+                activeMining.blockZ(),
+                activeMining.blockType()
             );
-            notice = "Blocco rimosso: " + miningState.blockType().label() + ".";
+            notice = "Blocco rimosso: " + activeMining.blockType().label() + ".";
         } else {
             notice = "Questo blocco non puo essere rimosso.";
         }
 
-        leftMouseHeld = false;
         resetMiningProgress();
         updateSelectionTarget();
-        repaint();
+    }
+
+    private boolean syncMiningTarget(boolean showFailureNotice) {
+        if (selectedTarget == null || !selectedTarget.inReach()) {
+            resetMiningProgress();
+            if (showFailureNotice) {
+                notice = selectedTarget == null ? "Nessun blocco selezionato." : "Blocco troppo lontano.";
+            }
+            return false;
+        }
+
+        BlockType targetBlock = world.blockAt(selectedTarget.blockX(), selectedTarget.blockY(), selectedTarget.blockZ());
+        if (targetBlock == null) {
+            resetMiningProgress();
+            if (showFailureNotice) {
+                notice = "Questo blocco non puo essere rimosso.";
+            }
+            return false;
+        }
+
+        if (miningState == null || !miningState.matches(
+            selectedTarget.blockX(), selectedTarget.blockY(), selectedTarget.blockZ(), targetBlock
+        )) {
+            miningState = new MiningState(
+                selectedTarget.blockX(),
+                selectedTarget.blockY(),
+                selectedTarget.blockZ(),
+                targetBlock,
+                0
+            );
+            notice = "Scavo " + targetBlock.label() + "...";
+        }
+        return true;
     }
 
     private void resetMiningProgress() {
         miningState = null;
+    }
+
+    private SelectionTarget currentMiningTarget() {
+        if (miningState == null) {
+            return null;
+        }
+        if (
+            selectedTarget != null &&
+                selectedTarget.blockX() == miningState.blockX() &&
+                selectedTarget.blockY() == miningState.blockY() &&
+                selectedTarget.blockZ() == miningState.blockZ()
+        ) {
+            return selectedTarget;
+        }
+        return new SelectionTarget(
+            miningState.blockX(),
+            miningState.blockY(),
+            miningState.blockZ(),
+            miningState.blockX(),
+            miningState.blockY() + 1,
+            miningState.blockZ(),
+            true,
+            null,
+            0
+        );
     }
 
     private void updateBlockBreakDebris(double delta) {
@@ -889,12 +918,12 @@ public final class GamePanel extends JPanel {
         int placeX = selectedTarget.placeX();
         int placeY = selectedTarget.placeY();
         int placeZ = selectedTarget.placeZ();
-        if (wouldTrapPlayer(placeX, placeY, placeZ)) {
+        BlockType selectedBlock = hotbarBlocks[activeBlockIndex];
+        if (selectedBlock.isSolid() && wouldTrapPlayer(placeX, placeY, placeZ)) {
             notice = "Non puoi piazzare un blocco dentro al player.";
             return;
         }
 
-        BlockType selectedBlock = hotbarBlocks[activeBlockIndex];
         if (world.placeBlock(placeX, placeY, placeZ, selectedBlock)) {
             notice = "Piazzato: " + selectedBlock.label() + ".";
             updateSelectionTarget();
@@ -1234,7 +1263,7 @@ public final class GamePanel extends JPanel {
         for (int blockX = startX; blockX <= endX; blockX += 1) {
             for (int blockY = startY; blockY <= endY; blockY += 1) {
                 for (int blockZ = startZ; blockZ <= endZ; blockZ += 1) {
-                    if (!world.hasBlock(blockX, blockY, blockZ)) {
+                    if (!world.hasSolidBlock(blockX, blockY, blockZ)) {
                         continue;
                     }
                     if (
@@ -1328,6 +1357,7 @@ public final class GamePanel extends JPanel {
                 case KeyEvent.VK_3 -> selectHotbarSlot(2);
                 case KeyEvent.VK_4 -> selectHotbarSlot(3);
                 case KeyEvent.VK_5 -> selectHotbarSlot(4);
+                case KeyEvent.VK_6 -> selectHotbarSlot(5);
                 default -> {
                 }
             }

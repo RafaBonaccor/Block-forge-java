@@ -24,7 +24,18 @@ final class FirstPersonWorldRenderer {
     private final Map<Long, GreedyMesher.ChunkMesh> chunkMeshCache = new HashMap<>();
     private World cachedWorld;
 
-    void drawWorld(Graphics2D g2, World world, Player player, double cameraYaw, double cameraPitch, int panelWidth, int panelHeight) {
+    void drawWorld(
+        Graphics2D g2,
+        World world,
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        List<BlockBreakDebris> debrisParticles,
+        SelectionTarget selectedTarget,
+        double breakingProgress
+    ) {
         List<FaceRender> faces = new ArrayList<>();
         double eyeY = player.y + FIRST_PERSON_EYE_HEIGHT;
         int centerCellX = (int) Math.floor(player.x);
@@ -69,12 +80,32 @@ final class FirstPersonWorldRenderer {
             );
         }
 
+        for (BlockBreakDebris debris : debrisParticles) {
+            addDebrisCubeFaces(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, debris);
+        }
+        if (breakingProgress > 0) {
+            addBreakingOverlayFaces(
+                faces,
+                world,
+                player,
+                cameraYaw,
+                cameraPitch,
+                panelWidth,
+                panelHeight,
+                selectedTarget,
+                breakingProgress
+            );
+        }
+
         faces.sort(Comparator.comparingDouble(FaceRender::depth).reversed());
         for (FaceRender face : faces) {
             g2.setColor(face.color());
             g2.fillPolygon(face.polygon());
             g2.setColor(new Color(255, 255, 255, 18));
             g2.drawPolygon(face.polygon());
+            if (face.crackQuad() != null && face.crackProgress() > 0) {
+                BlockCrackOverlay.draw(g2, face.crackQuad(), face.crackProgress());
+            }
         }
     }
 
@@ -378,30 +409,85 @@ final class FirstPersonWorldRenderer {
         g2.drawLine(centerX, centerY - 10, centerX, centerY + 10);
     }
 
-    void drawBlockBreakDebris(
+    void drawSelection(
         Graphics2D g2,
         Player player,
         double cameraYaw,
         double cameraPitch,
         int panelWidth,
         int panelHeight,
-        List<BlockBreakDebris> debrisParticles
+        SelectionTarget selectedTarget
     ) {
-        List<FaceRender> faces = new ArrayList<>();
-        for (BlockBreakDebris debris : debrisParticles) {
-            addDebrisCubeFaces(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, debris);
+        if (selectedTarget == null || !selectedTarget.inReach()) {
+            return;
         }
-        faces.sort(Comparator.comparingDouble(FaceRender::depth).reversed());
-        for (FaceRender face : faces) {
-            g2.setColor(face.color());
-            g2.fillPolygon(face.polygon());
-            g2.setColor(new Color(255, 255, 255, 12));
-            g2.drawPolygon(face.polygon());
+
+        int x = selectedTarget.blockX();
+        int y = selectedTarget.blockY();
+        int z = selectedTarget.blockZ();
+        double eyeY = player.y + FIRST_PERSON_EYE_HEIGHT;
+
+        if (player.x >= x + 0.5) {
+            drawSelectionFace(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight,
+                new Vec3(x + 1, y + 1, z), new Vec3(x + 1, y + 1, z + 1),
+                new Vec3(x + 1, y, z + 1), new Vec3(x + 1, y, z));
+        } else {
+            drawSelectionFace(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight,
+                new Vec3(x, y + 1, z + 1), new Vec3(x, y + 1, z),
+                new Vec3(x, y, z), new Vec3(x, y, z + 1));
+        }
+
+        if (player.z >= z + 0.5) {
+            drawSelectionFace(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight,
+                new Vec3(x + 1, y + 1, z + 1), new Vec3(x, y + 1, z + 1),
+                new Vec3(x, y, z + 1), new Vec3(x + 1, y, z + 1));
+        } else {
+            drawSelectionFace(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight,
+                new Vec3(x, y + 1, z), new Vec3(x + 1, y + 1, z),
+                new Vec3(x + 1, y, z), new Vec3(x, y, z));
+        }
+
+        if (eyeY >= y + 0.5) {
+            drawSelectionFace(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight,
+                new Vec3(x, y + 1, z), new Vec3(x + 1, y + 1, z),
+                new Vec3(x + 1, y + 1, z + 1), new Vec3(x, y + 1, z + 1));
+        } else {
+            drawSelectionFace(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight,
+                new Vec3(x, y, z + 1), new Vec3(x + 1, y, z + 1),
+                new Vec3(x + 1, y, z), new Vec3(x, y, z));
         }
     }
 
-    void drawBreakingOverlay(
+    private void drawSelectionFace(
         Graphics2D g2,
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        Vec3 p1,
+        Vec3 p2,
+        Vec3 p3,
+        Vec3 p4
+    ) {
+        BlockCrackOverlay.ScreenQuad quad = projectFaceQuad(
+            player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4
+        );
+        if (quad == null) {
+            return;
+        }
+
+        Polygon polygon = quad.asPolygon();
+        g2.setStroke(new BasicStroke(2.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2.setColor(new Color(12, 16, 20, 190));
+        g2.drawPolygon(polygon);
+        g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2.setColor(new Color(245, 248, 250, 225));
+        g2.drawPolygon(polygon);
+    }
+
+    private void addBreakingOverlayFaces(
+        List<FaceRender> faces,
         World world,
         Player player,
         double cameraYaw,
@@ -422,46 +508,30 @@ final class FirstPersonWorldRenderer {
             return;
         }
 
-        double eyeY = player.y + FIRST_PERSON_EYE_HEIGHT;
-        if (!world.hasBlock(x, y + 1, z) && eyeY >= y + 0.95) {
-            BlockCrackOverlay.ScreenQuad topFace = projectFaceQuad(
-                player,
-                cameraYaw,
-                cameraPitch,
-                panelWidth,
-                panelHeight,
-                new Vec3(x, y + 1.0, z),
-                new Vec3(x + 1.0, y + 1.0, z),
-                new Vec3(x + 1.0, y + 1.0, z + 1.0),
-                new Vec3(x, y + 1.0, z + 1.0)
-            );
-            BlockCrackOverlay.draw(g2, topFace, progress);
-        }
-
-        drawBreakingSideIfVisible(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress, x, y, z, x + 1.0, !world.hasBlock(x + 1, y, z),
-            new Vec3(x + 1.0, y + 1.0, z),
-            new Vec3(x + 1.0, y + 1.0, z + 1.0),
-            new Vec3(x + 1.0, y, z + 1.0),
-            new Vec3(x + 1.0, y, z)
-        );
-        drawBreakingSideIfVisible(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress, x, y, z, x, !world.hasBlock(x - 1, y, z),
-            new Vec3(x, y + 1.0, z + 1.0),
-            new Vec3(x, y + 1.0, z),
-            new Vec3(x, y, z),
-            new Vec3(x, y, z + 1.0)
-        );
-        drawBreakingZFaceIfVisible(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress, x, y, z, z + 1.0, !world.hasBlock(x, y, z + 1),
-            new Vec3(x + 1.0, y + 1.0, z + 1.0),
-            new Vec3(x, y + 1.0, z + 1.0),
-            new Vec3(x, y, z + 1.0),
-            new Vec3(x + 1.0, y, z + 1.0)
-        );
-        drawBreakingZFaceIfVisible(g2, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress, x, y, z, z, !world.hasBlock(x, y, z - 1),
-            new Vec3(x, y + 1.0, z),
-            new Vec3(x + 1.0, y + 1.0, z),
-            new Vec3(x + 1.0, y, z),
-            new Vec3(x, y, z)
-        );
+        addBreakingFace(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress,
+            new Vec3(x, y + 1, z), new Vec3(x + 1, y + 1, z),
+            new Vec3(x + 1, y + 1, z + 1), new Vec3(x, y + 1, z + 1),
+            x + 0.5, y + 1, z + 0.5);
+        addBreakingFace(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress,
+            new Vec3(x, y, z + 1), new Vec3(x + 1, y, z + 1),
+            new Vec3(x + 1, y, z), new Vec3(x, y, z),
+            x + 0.5, y, z + 0.5);
+        addBreakingFace(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress,
+            new Vec3(x + 1, y + 1, z), new Vec3(x + 1, y + 1, z + 1),
+            new Vec3(x + 1, y, z + 1), new Vec3(x + 1, y, z),
+            x + 1, y + 0.5, z + 0.5);
+        addBreakingFace(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress,
+            new Vec3(x, y + 1, z + 1), new Vec3(x, y + 1, z),
+            new Vec3(x, y, z), new Vec3(x, y, z + 1),
+            x, y + 0.5, z + 0.5);
+        addBreakingFace(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress,
+            new Vec3(x + 1, y + 1, z + 1), new Vec3(x, y + 1, z + 1),
+            new Vec3(x, y, z + 1), new Vec3(x + 1, y, z + 1),
+            x + 0.5, y + 0.5, z + 1);
+        addBreakingFace(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, progress,
+            new Vec3(x, y + 1, z), new Vec3(x + 1, y + 1, z),
+            new Vec3(x + 1, y, z), new Vec3(x, y, z),
+            x + 0.5, y + 0.5, z);
     }
 
     SelectionTarget raycastSelection(World world, Player player, double cameraYaw, double cameraPitch, double interactRange) {
@@ -503,68 +573,6 @@ final class FirstPersonWorldRenderer {
         }
 
         return null;
-    }
-
-    private void drawBreakingSideIfVisible(
-        Graphics2D g2,
-        Player player,
-        double cameraYaw,
-        double cameraPitch,
-        int panelWidth,
-        int panelHeight,
-        double progress,
-        int blockX,
-        int blockY,
-        int blockZ,
-        double faceX,
-        boolean faceVisible,
-        Vec3 p1,
-        Vec3 p2,
-        Vec3 p3,
-        Vec3 p4
-    ) {
-        if (!faceVisible) {
-            return;
-        }
-        double faceCenterX = faceX;
-        double faceCenterY = blockY + 0.5;
-        double faceCenterZ = blockZ + 0.5;
-        if ((player.x - faceCenterX) * (faceX > blockX ? 1 : -1) <= 0) {
-            return;
-        }
-        BlockCrackOverlay.ScreenQuad polygon = projectFaceQuad(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4);
-        BlockCrackOverlay.draw(g2, polygon, progress);
-    }
-
-    private void drawBreakingZFaceIfVisible(
-        Graphics2D g2,
-        Player player,
-        double cameraYaw,
-        double cameraPitch,
-        int panelWidth,
-        int panelHeight,
-        double progress,
-        int blockX,
-        int blockY,
-        int blockZ,
-        double faceZ,
-        boolean faceVisible,
-        Vec3 p1,
-        Vec3 p2,
-        Vec3 p3,
-        Vec3 p4
-    ) {
-        if (!faceVisible) {
-            return;
-        }
-        double faceCenterX = blockX + 0.5;
-        double faceCenterY = blockY + 0.5;
-        double faceCenterZ = faceZ;
-        if ((player.z - faceCenterZ) * (faceZ > blockZ ? 1 : -1) <= 0) {
-            return;
-        }
-        BlockCrackOverlay.ScreenQuad polygon = projectFaceQuad(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4);
-        BlockCrackOverlay.draw(g2, polygon, progress);
     }
 
     private void addVoidFloorFace(
@@ -611,6 +619,27 @@ final class FirstPersonWorldRenderer {
         double centerY,
         double centerZ
     ) {
+        addFace(faces, player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4, baseColor, centerX, centerY, centerZ, null, 0);
+    }
+
+    private void addFace(
+        List<FaceRender> faces,
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        Vec3 p1,
+        Vec3 p2,
+        Vec3 p3,
+        Vec3 p4,
+        Color baseColor,
+        double centerX,
+        double centerY,
+        double centerZ,
+        BlockCrackOverlay.ScreenQuad crackQuad,
+        double crackProgress
+    ) {
         List<CameraPoint> clippedPoints = clipToNearPlane(
             List.of(
                 toCameraPoint(player, cameraYaw, cameraPitch, p1.x(), p1.y(), p1.z()),
@@ -645,7 +674,7 @@ final class FirstPersonWorldRenderer {
             return;
         }
 
-        faces.add(new FaceRender(polygon, applyDistanceFog(baseColor, faceDepth, false), faceDepth));
+        faces.add(new FaceRender(polygon, applyDistanceFog(baseColor, faceDepth, false), faceDepth, crackQuad, crackProgress));
     }
 
     private BlockCrackOverlay.ScreenQuad projectFaceQuad(
@@ -907,7 +936,7 @@ final class FirstPersonWorldRenderer {
         int red = (int) Math.round(baseColor.getRed() * (1 - fogAmount) + fogColor.getRed() * fogAmount);
         int green = (int) Math.round(baseColor.getGreen() * (1 - fogAmount) + fogColor.getGreen() * fogAmount);
         int blue = (int) Math.round(baseColor.getBlue() * (1 - fogAmount) + fogColor.getBlue() * fogAmount);
-        return new Color(red, green, blue);
+        return new Color(red, green, blue, baseColor.getAlpha());
     }
 
     private double clamp(double value, double min, double max) {
@@ -915,7 +944,49 @@ final class FirstPersonWorldRenderer {
     }
 
     private Color fade(Color color, double lifeRatio) {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), (int) Math.round(255 * lifeRatio));
+        double brightness = 0.55 + lifeRatio * 0.45;
+        return new Color(
+            (int) Math.round(color.getRed() * brightness),
+            (int) Math.round(color.getGreen() * brightness),
+            (int) Math.round(color.getBlue() * brightness)
+        );
+    }
+
+    private void addBreakingFace(
+        List<FaceRender> faces,
+        Player player,
+        double cameraYaw,
+        double cameraPitch,
+        int panelWidth,
+        int panelHeight,
+        double progress,
+        Vec3 p1,
+        Vec3 p2,
+        Vec3 p3,
+        Vec3 p4,
+        double centerX,
+        double centerY,
+        double centerZ
+    ) {
+        BlockCrackOverlay.ScreenQuad crackQuad = projectFaceQuad(player, cameraYaw, cameraPitch, panelWidth, panelHeight, p1, p2, p3, p4);
+        addFace(
+            faces,
+            player,
+            cameraYaw,
+            cameraPitch,
+            panelWidth,
+            panelHeight,
+            p1,
+            p2,
+            p3,
+            p4,
+            new Color(0, 0, 0, 0),
+            centerX,
+            centerY,
+            centerZ,
+            crackQuad,
+            progress
+        );
     }
 
     private record Vec3(double x, double y, double z) {
@@ -930,6 +1001,12 @@ final class FirstPersonWorldRenderer {
     private record ProjectedPoint(double screenX, double screenY, double depth) {
     }
 
-    private record FaceRender(Polygon polygon, Color color, double depth) {
+    private record FaceRender(
+        Polygon polygon,
+        Color color,
+        double depth,
+        BlockCrackOverlay.ScreenQuad crackQuad,
+        double crackProgress
+    ) {
     }
 }

@@ -44,9 +44,11 @@ final class SaveGame {
         properties.setProperty("view.mode", viewMode.name());
         properties.setProperty("settings.autoStep", Boolean.toString(autoStepEnabled));
 
-        world.forEachBlock((x, y, z, blockType) ->
-            properties.setProperty(BLOCK_PREFIX + x + "," + y + "," + z, blockType.name())
-        );
+        world.forEachBlock((x, y, z, blockType) -> {
+            if (blockType != BlockType.WATER || world.isWaterSource(x, y, z)) {
+                properties.setProperty(BLOCK_PREFIX + x + "," + y + "," + z, blockType.name());
+            }
+        });
 
         Files.createDirectories(path.getParent());
         try (OutputStream output = Files.newOutputStream(path)) {

@@ -47,8 +47,6 @@ final class BlockCrackOverlay {
         int segmentCount = Math.max(1, (int) Math.ceil(clamp(progress, 0, 1) * SEGMENTS.length));
         Graphics2D overlay = (Graphics2D) g2.create();
         overlay.clip(polygon);
-        overlay.setColor(new Color(24, 18, 18, (int) Math.round(18 + progress * 36)));
-        overlay.fillPolygon(polygon);
         overlay.setStroke(new BasicStroke(
             (float) Math.max(1.2, Math.min(bounds.width, bounds.height) * 0.04),
             BasicStroke.CAP_ROUND,

@@ -140,7 +140,7 @@ final class GreedyMesher {
         }
 
         int neighborY = orientation == Orientation.TOP ? y + 1 : y - 1;
-        return world.hasBlock(x, neighborY, z) ? null : blockType;
+        return world.occludesFace(x, neighborY, z, blockType) ? null : blockType;
     }
 
     private static void addEastWestFaces(
@@ -253,7 +253,7 @@ final class GreedyMesher {
         }
 
         int neighborX = orientation == Orientation.EAST ? x + 1 : x - 1;
-        return world.hasBlock(neighborX, y, z) ? null : blockType;
+        return world.occludesFace(neighborX, y, z, blockType) ? null : blockType;
     }
 
     private static void addNorthSouthFaces(
@@ -366,7 +366,7 @@ final class GreedyMesher {
         }
 
         int neighborZ = orientation == Orientation.SOUTH ? z + 1 : z - 1;
-        return world.hasBlock(x, y, neighborZ) ? null : blockType;
+        return world.occludesFace(x, y, neighborZ, blockType) ? null : blockType;
     }
 
     private static void markConsumed(boolean[][] consumed, int startA, int startB, int width, int height) {
@@ -408,14 +408,14 @@ final class GreedyMesher {
         int samples = 0;
 
         for (int x = faceX - 1; x <= faceX + width; x += 1) {
-            blockers += world.hasBlock(x, y, faceZ - 1) ? 1 : 0;
-            blockers += world.hasBlock(x, y, faceZ + height) ? 1 : 0;
+            blockers += world.hasSolidBlock(x, y, faceZ - 1) ? 1 : 0;
+            blockers += world.hasSolidBlock(x, y, faceZ + height) ? 1 : 0;
             samples += 2;
         }
 
         for (int z = faceZ; z < faceZ + height; z += 1) {
-            blockers += world.hasBlock(faceX - 1, y, z) ? 1 : 0;
-            blockers += world.hasBlock(faceX + width, y, z) ? 1 : 0;
+            blockers += world.hasSolidBlock(faceX - 1, y, z) ? 1 : 0;
+            blockers += world.hasSolidBlock(faceX + width, y, z) ? 1 : 0;
             samples += 2;
         }
 

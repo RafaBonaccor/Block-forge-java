@@ -1,6 +1,8 @@
 package blockforge;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.List;
 import java.util.OptionalDouble;
 
@@ -9,9 +11,11 @@ public final class World {
     private static final int CHUNK_SIZE = 8;
     private static final int MIN_BLOCK_Y = 0;
     private static final int MAX_BLOCK_Y = 23;
+    private static final int MAX_WATER_SPREAD = 4;
 
     private final int radius;
     private final BlockType[][][] blocks;
+    private final boolean[][][] waterSources;
     private final boolean[][] generatedVoidColumns;
     private final int[][] chunkRevisions;
 
@@ -19,6 +23,7 @@ public final class World {
         this.radius = radius;
         int size = radius * 2 + 1;
         blocks = new BlockType[size][MAX_BLOCK_Y + 1][size];
+        waterSources = new boolean[size][MAX_BLOCK_Y + 1][size];
         generatedVoidColumns = new boolean[size][size];
         chunkRevisions = new int[chunkCountPerAxis()][chunkCountPerAxis()];
         generate();
@@ -101,6 +106,22 @@ public final class World {
         return blockAt(x, y, z) != null;
     }
 
+    public boolean hasSolidBlock(int x, int y, int z) {
+        BlockType blockType = blockAt(x, y, z);
+        return blockType != null && blockType.isSolid();
+    }
+
+    public boolean occludesFace(int x, int y, int z, BlockType sourceType) {
+        BlockType neighbor = blockAt(x, y, z);
+        if (neighbor == null) {
+            return false;
+        }
+        if (sourceType.isTranslucent()) {
+            return neighbor == sourceType;
+        }
+        return !neighbor.isTranslucent();
+    }
+
     public BlockType blockAt(int x, int y, int z) {
         if (!containsBlockPosition(x, y, z)) {
             return null;
@@ -113,6 +134,7 @@ public final class World {
             return false;
         }
         blocks[index(x)][y][index(z)] = blockType;
+        waterSources[index(x)][y][index(z)] = blockType == BlockType.WATER;
         markBlockAndNeighborChunksDirty(x, z);
         return true;
     }
@@ -122,6 +144,7 @@ public final class World {
             return;
         }
         blocks[index(x)][y][index(z)] = blockType;
+        waterSources[index(x)][y][index(z)] = blockType == BlockType.WATER;
         markBlockAndNeighborChunksDirty(x, z);
     }
 
@@ -130,6 +153,7 @@ public final class World {
             for (int y = MIN_BLOCK_Y; y <= MAX_BLOCK_Y; y += 1) {
                 for (int z = -radius; z <= radius; z += 1) {
                     blocks[index(x)][y][index(z)] = null;
+                    waterSources[index(x)][y][index(z)] = false;
                 }
             }
         }
@@ -154,8 +178,104 @@ public final class World {
             return false;
         }
         blocks[index(x)][y][index(z)] = null;
+        waterSources[index(x)][y][index(z)] = false;
         markBlockAndNeighborChunksDirty(x, z);
         return true;
+    }
+
+    public boolean isWaterSource(int x, int y, int z) {
+        return containsBlockPosition(x, y, z) && waterSources[index(x)][y][index(z)];
+    }
+
+    public void simulateWater() {
+        int size = radius * 2 + 1;
+        int[][][] nextLevels = new int[size][MAX_BLOCK_Y + 1][size];
+        ArrayDeque<WaterNode> pending = new ArrayDeque<>();
+
+        for (int localX = 0; localX < size; localX += 1) {
+            for (int y = MIN_BLOCK_Y; y <= MAX_BLOCK_Y; y += 1) {
+                Arrays.fill(nextLevels[localX][y], -1);
+                for (int localZ = 0; localZ < size; localZ += 1) {
+                    if (waterSources[localX][y][localZ]) {
+                        pending.addLast(new WaterNode(localX - radius, y, localZ - radius, 0));
+                    }
+                }
+            }
+        }
+
+        while (!pending.isEmpty()) {
+            WaterNode node = pending.removeFirst();
+            if (!containsBlockPosition(node.x(), node.y(), node.z())) {
+                continue;
+            }
+
+            int localX = index(node.x());
+            int localZ = index(node.z());
+            BlockType occupied = blocks[localX][node.y()][localZ];
+            if (occupied != null && occupied != BlockType.WATER) {
+                continue;
+            }
+            int existingLevel = nextLevels[localX][node.y()][localZ];
+            if (existingLevel >= 0 && existingLevel <= node.level()) {
+                continue;
+            }
+            nextLevels[localX][node.y()][localZ] = node.level();
+
+            if (node.y() > MIN_BLOCK_Y && !hasSolidBlock(node.x(), node.y() - 1, node.z())) {
+                pending.addLast(new WaterNode(node.x(), node.y() - 1, node.z(), node.level()));
+                continue;
+            }
+            if (node.level() >= MAX_WATER_SPREAD) {
+                continue;
+            }
+
+            int nextLevel = node.level() + 1;
+            pending.addLast(new WaterNode(node.x() + 1, node.y(), node.z(), nextLevel));
+            pending.addLast(new WaterNode(node.x() - 1, node.y(), node.z(), nextLevel));
+            pending.addLast(new WaterNode(node.x(), node.y(), node.z() + 1, nextLevel));
+            pending.addLast(new WaterNode(node.x(), node.y(), node.z() - 1, nextLevel));
+        }
+
+        boolean[][][] currentWater = new boolean[size][MAX_BLOCK_Y + 1][size];
+        for (int localX = 0; localX < size; localX += 1) {
+            for (int y = MIN_BLOCK_Y; y <= MAX_BLOCK_Y; y += 1) {
+                for (int localZ = 0; localZ < size; localZ += 1) {
+                    currentWater[localX][y][localZ] = blocks[localX][y][localZ] == BlockType.WATER;
+                }
+            }
+        }
+
+        boolean changed = false;
+        for (int localX = 0; localX < size; localX += 1) {
+            for (int y = MIN_BLOCK_Y; y <= MAX_BLOCK_Y; y += 1) {
+                for (int localZ = 0; localZ < size; localZ += 1) {
+                    BlockType current = blocks[localX][y][localZ];
+                    boolean shouldContainWater = nextLevels[localX][y][localZ] >= 0;
+                    boolean reachedByCurrentFlow = waterSources[localX][y][localZ] ||
+                        hasAdjacentWater(currentWater, localX, y, localZ);
+                    if (shouldContainWater && current == null && reachedByCurrentFlow) {
+                        blocks[localX][y][localZ] = BlockType.WATER;
+                        changed = true;
+                    } else if (!shouldContainWater && current == BlockType.WATER) {
+                        blocks[localX][y][localZ] = null;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if (changed) {
+            markAllChunksDirty();
+        }
+    }
+
+    private boolean hasAdjacentWater(boolean[][][] water, int localX, int y, int localZ) {
+        int size = radius * 2 + 1;
+        return localX > 0 && water[localX - 1][y][localZ] ||
+            localX + 1 < size && water[localX + 1][y][localZ] ||
+            localZ > 0 && water[localX][y][localZ - 1] ||
+            localZ + 1 < size && water[localX][y][localZ + 1] ||
+            y > MIN_BLOCK_Y && water[localX][y - 1][localZ] ||
+            y < MAX_BLOCK_Y && water[localX][y + 1][localZ];
     }
 
     public int highestSolidBlockYAt(int x, int z) {
@@ -164,7 +284,7 @@ public final class World {
         }
 
         for (int y = MAX_BLOCK_Y; y >= MIN_BLOCK_Y; y -= 1) {
-            if (hasBlock(x, y, z)) {
+            if (hasSolidBlock(x, y, z)) {
                 return y;
             }
         }
@@ -190,7 +310,7 @@ public final class World {
 
         int maxCandidateY = Math.min(MAX_BLOCK_Y, (int) Math.floor(maxTopY - 1.0 + EPSILON));
         for (int y = maxCandidateY; y >= MIN_BLOCK_Y; y -= 1) {
-            if (hasBlock(cellX, y, cellZ)) {
+            if (hasSolidBlock(cellX, y, cellZ)) {
                 return OptionalDouble.of(y + 1.0);
             }
         }
@@ -327,6 +447,9 @@ public final class World {
         public double centerZ() {
             return (minZ + maxZ + 1) * 0.5;
         }
+    }
+
+    private record WaterNode(int x, int y, int z, int level) {
     }
 
     public interface BlockVisitor {

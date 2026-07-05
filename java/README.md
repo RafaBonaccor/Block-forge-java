@@ -28,6 +28,7 @@ What it includes:
 - first-person greedy meshing for exposed side and bottom surfaces
 - dirty chunk mesh cache invalidated by block edits and save-load changes
 - per-face distance/cone culling before Java2D projection
+- translucent water sources with vertical fall and limited horizontal flow
 
 ## Build
 
@@ -72,7 +73,9 @@ chmod +x run-java.sh
 - `Up / Down` look up and down in first-person
 - `Left click` mine the selected block
 - `Right click` place one block next to the selected block
-- `1-5` change selected block
+- `1-6` change selected block (`6` selects water)
+
+Water placed with slot `6` acts as a source: every update it advances by one cell, falling until it reaches a solid surface and then spreading up to four cells sideways. Removing the source retracts its derived flow.
 - `R` respawn manually
 - `Esc` or `P` pause/resume
 - `S` save from the pause menu

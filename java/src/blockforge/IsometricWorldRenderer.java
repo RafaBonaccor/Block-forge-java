@@ -38,13 +38,14 @@ final class IsometricWorldRenderer {
                             continue;
                         }
 
-                        boolean topVisible = !world.hasBlock(x, y + 1, z);
+                        BlockType blockType = world.blockAt(x, y, z);
+                        boolean topVisible = !world.occludesFace(x, y + 1, z, blockType);
                         boolean anyFaceVisible =
                             topVisible ||
-                            !world.hasBlock(x + 1, y, z) ||
-                            !world.hasBlock(x - 1, y, z) ||
-                            !world.hasBlock(x, y, z + 1) ||
-                            !world.hasBlock(x, y, z - 1);
+                            !world.occludesFace(x + 1, y, z, blockType) ||
+                            !world.occludesFace(x - 1, y, z, blockType) ||
+                            !world.occludesFace(x, y, z + 1, blockType) ||
+                            !world.occludesFace(x, y, z - 1, blockType);
 
                         if (!anyFaceVisible) {
                             continue;
@@ -71,14 +72,44 @@ final class IsometricWorldRenderer {
         double cameraYaw,
         int viewRadius,
         int panelWidth,
-        int panelHeight
+        int panelHeight,
+        List<BlockBreakDebris> debrisParticles,
+        SelectionTarget selectedTarget,
+        double breakingProgress
     ) {
         List<CellProjection> visibleBlocks = buildVisibleCells(world, player, cameraYaw, viewRadius, panelWidth, panelHeight);
-        for (CellProjection block : visibleBlocks) {
+        List<DebrisProjection> visibleDebris = buildVisibleDebris(player, cameraYaw, panelWidth, panelHeight, debrisParticles);
+        int blockIndex = 0;
+        int debrisIndex = 0;
+
+        while (blockIndex < visibleBlocks.size() || debrisIndex < visibleDebris.size()) {
+            boolean drawDebris = blockIndex >= visibleBlocks.size();
+            if (!drawDebris && debrisIndex < visibleDebris.size()) {
+                drawDebris = visibleDebris.get(debrisIndex).depth() <= visibleBlocks.get(blockIndex).depth();
+            }
+
+            if (drawDebris) {
+                drawDebrisCube(g2, player, cameraYaw, panelWidth, panelHeight, visibleDebris.get(debrisIndex).debris());
+                debrisIndex += 1;
+                continue;
+            }
+
+            CellProjection block = visibleBlocks.get(blockIndex);
             BlockType blockType = world.blockAt(block.x(), block.y(), block.z());
             if (blockType != null) {
                 drawBlock(g2, world, player, cameraYaw, panelWidth, panelHeight, block.x(), block.y(), block.z(), blockType);
+                if (
+                    breakingProgress > 0 &&
+                        selectedTarget != null &&
+                        selectedTarget.blockX() == block.x() &&
+                        selectedTarget.blockY() == block.y() &&
+                        selectedTarget.blockZ() == block.z() &&
+                        block.topFace() != null
+                ) {
+                    BlockCrackOverlay.draw(g2, block.topFace(), breakingProgress);
+                }
             }
+            blockIndex += 1;
         }
 
         drawVoidTiles(g2, world, player, cameraYaw, viewRadius, panelWidth, panelHeight);
@@ -103,24 +134,20 @@ final class IsometricWorldRenderer {
         g2.drawPolygon(selectedTarget.topFace());
     }
 
-    void drawBlockBreakDebris(
-        Graphics2D g2,
+    private List<DebrisProjection> buildVisibleDebris(
         Player player,
         double cameraYaw,
         int panelWidth,
         int panelHeight,
         List<BlockBreakDebris> debrisParticles
     ) {
+        List<DebrisProjection> visibleDebris = new ArrayList<>();
         for (BlockBreakDebris debris : debrisParticles) {
-            drawDebrisCube(g2, player, cameraYaw, panelWidth, panelHeight, debris);
+            double depth = depthForBlock(player, cameraYaw, debris.x(), debris.y(), debris.z());
+            visibleDebris.add(new DebrisProjection(debris, depth));
         }
-    }
-
-    void drawBreakingOverlay(Graphics2D g2, SelectionTarget selectedTarget, double progress) {
-        if (selectedTarget == null || selectedTarget.topFace() == null) {
-            return;
-        }
-        BlockCrackOverlay.draw(g2, selectedTarget.topFace(), progress);
+        visibleDebris.sort(Comparator.comparingDouble(DebrisProjection::depth));
+        return visibleDebris;
     }
 
     void drawPlayer(Graphics2D g2, Player player, double cameraYaw, int panelWidth, int panelHeight) {
@@ -190,7 +217,7 @@ final class IsometricWorldRenderer {
         Point2D.Double baseSw = project(player, cameraYaw, panelWidth, panelHeight, x, y, z + 1);
         Point2D.Double baseNw = project(player, cameraYaw, panelWidth, panelHeight, x, y, z);
 
-        if (!world.hasBlock(x + 1, y, z)) {
+        if (!world.occludesFace(x + 1, y, z, blockType)) {
             Polygon eastFace = polygon(topNe, topSe, baseSe, baseNe);
             g2.setColor(blockType.rightColor());
             g2.fillPolygon(eastFace);
@@ -198,7 +225,7 @@ final class IsometricWorldRenderer {
             g2.drawPolygon(eastFace);
         }
 
-        if (!world.hasBlock(x, y, z + 1)) {
+        if (!world.occludesFace(x, y, z + 1, blockType)) {
             Polygon southFace = polygon(topSw, topSe, baseSe, baseSw);
             g2.setColor(blockType.leftColor());
             g2.fillPolygon(southFace);
@@ -206,7 +233,7 @@ final class IsometricWorldRenderer {
             g2.drawPolygon(southFace);
         }
 
-        if (!world.hasBlock(x - 1, y, z)) {
+        if (!world.occludesFace(x - 1, y, z, blockType)) {
             Polygon westFace = polygon(topNw, topSw, baseSw, baseNw);
             g2.setColor(blockType.leftColor());
             g2.fillPolygon(westFace);
@@ -214,7 +241,7 @@ final class IsometricWorldRenderer {
             g2.drawPolygon(westFace);
         }
 
-        if (!world.hasBlock(x, y, z - 1)) {
+        if (!world.occludesFace(x, y, z - 1, blockType)) {
             Polygon northFace = polygon(topNw, topNe, baseNe, baseNw);
             g2.setColor(blockType.rightColor());
             g2.fillPolygon(northFace);
@@ -222,7 +249,7 @@ final class IsometricWorldRenderer {
             g2.drawPolygon(northFace);
         }
 
-        if (!world.hasBlock(x, y + 1, z)) {
+        if (!world.occludesFace(x, y + 1, z, blockType)) {
             Polygon topFace = polygon(topNw, topNe, topSe, topSw);
             g2.setColor(blockType.topColor());
             g2.fillPolygon(topFace);
@@ -343,6 +370,14 @@ final class IsometricWorldRenderer {
     }
 
     private Color fade(Color color, double lifeRatio) {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), (int) Math.round(255 * lifeRatio));
+        double brightness = 0.55 + lifeRatio * 0.45;
+        return new Color(
+            (int) Math.round(color.getRed() * brightness),
+            (int) Math.round(color.getGreen() * brightness),
+            (int) Math.round(color.getBlue() * brightness)
+        );
+    }
+
+    private record DebrisProjection(BlockBreakDebris debris, double depth) {
     }
 }
