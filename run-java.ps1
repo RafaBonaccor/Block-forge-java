@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sourceDir = Join-Path $projectRoot "java\src\blockforge"
+$sourceDir = Join-Path $projectRoot "java\src"
 $outputDir = Join-Path $projectRoot "java\out"
 
 Write-Host "Blockforge Java" -ForegroundColor Cyan
@@ -27,7 +27,7 @@ if (-not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir | Out-Null
 }
 
-$sourceFiles = Get-ChildItem -Path $sourceDir -Filter "*.java" | ForEach-Object { $_.FullName }
+$sourceFiles = Get-ChildItem -Path $sourceDir -Recurse -Filter "*.java" | ForEach-Object { $_.FullName }
 if ($sourceFiles.Count -eq 0) {
     throw "Nessun file sorgente Java trovato in $sourceDir"
 }

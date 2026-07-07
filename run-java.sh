@@ -2,7 +2,7 @@
 set -eu
 
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-SOURCE_DIR="$PROJECT_ROOT/java/src/blockforge"
+SOURCE_DIR="$PROJECT_ROOT/java/src"
 OUTPUT_DIR="$PROJECT_ROOT/java/out"
 
 if ! command -v javac >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1; then

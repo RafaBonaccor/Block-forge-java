@@ -1,4 +1,10 @@
-package blockforge;
+package blockforge.render;
+
+import blockforge.game.BlockBreakDebris;
+import blockforge.game.Player;
+import blockforge.game.SelectionTarget;
+import blockforge.world.BlockType;
+import blockforge.world.World;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -9,14 +15,14 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-final class IsometricWorldRenderer {
+public final class IsometricWorldRenderer {
     private static final int TILE_WIDTH = 52;
     private static final int TILE_HEIGHT = 26;
     private static final int BLOCK_HEIGHT = 20;
     private static final int VOID_TILE_Y = -1;
     private static final double PLAYER_HEIGHT = 1.7;
 
-    List<CellProjection> buildVisibleCells(
+    public List<CellProjection> buildVisibleCells(
         World world,
         Player player,
         double cameraYaw,
@@ -65,7 +71,7 @@ final class IsometricWorldRenderer {
         return blocks;
     }
 
-    void drawWorld(
+    public void drawWorld(
         Graphics2D g2,
         World world,
         Player player,
@@ -115,7 +121,7 @@ final class IsometricWorldRenderer {
         drawVoidTiles(g2, world, player, cameraYaw, viewRadius, panelWidth, panelHeight);
     }
 
-    void drawSelection(Graphics2D g2, SelectionTarget selectedTarget) {
+    public void drawSelection(Graphics2D g2, SelectionTarget selectedTarget) {
         if (selectedTarget == null || selectedTarget.topFace() == null) {
             return;
         }
@@ -150,7 +156,7 @@ final class IsometricWorldRenderer {
         return visibleDebris;
     }
 
-    void drawPlayer(Graphics2D g2, Player player, double cameraYaw, int panelWidth, int panelHeight) {
+    public void drawPlayer(Graphics2D g2, Player player, double cameraYaw, int panelWidth, int panelHeight) {
         Point2D.Double feet = project(player, cameraYaw, panelWidth, panelHeight, player.x, player.y, player.z);
         Point2D.Double head = project(player, cameraYaw, panelWidth, panelHeight, player.x, player.y + PLAYER_HEIGHT, player.z);
 

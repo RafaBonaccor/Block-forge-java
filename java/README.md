@@ -35,7 +35,8 @@ What it includes:
 From the project root:
 
 ```powershell
-javac -d java/out java/src/blockforge/*.java
+$sources = Get-ChildItem java/src -Recurse -Filter *.java
+javac -d java/out $sources.FullName
 ```
 
 ## Run
@@ -67,6 +68,7 @@ chmod +x run-java.sh
 
 - `W A S D` move
 - `Space` jump
+- hold `Space` while in water to swim upward
 - `V` or `F5` switch between superior and first-person view
 - `Q / E` rotate the camera
 - `Mouse move` look around in first-person

@@ -1,4 +1,10 @@
-package blockforge;
+package blockforge.render;
+
+import blockforge.game.BlockBreakDebris;
+import blockforge.game.Player;
+import blockforge.game.SelectionTarget;
+import blockforge.world.BlockType;
+import blockforge.world.World;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -11,7 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-final class FirstPersonWorldRenderer {
+public final class FirstPersonWorldRenderer {
     private static final double FIRST_PERSON_EYE_HEIGHT = 1.55;
     private static final double FIRST_PERSON_FOV = Math.toRadians(72);
     private static final double FIRST_PERSON_MAX_DISTANCE = 42.0;
@@ -24,7 +30,7 @@ final class FirstPersonWorldRenderer {
     private final Map<Long, GreedyMesher.ChunkMesh> chunkMeshCache = new HashMap<>();
     private World cachedWorld;
 
-    void drawWorld(
+    public void drawWorld(
         Graphics2D g2,
         World world,
         Player player,
@@ -400,7 +406,7 @@ final class FirstPersonWorldRenderer {
         return Math.sqrt(world.chunkSize() * world.chunkSize() * 2.0) * 0.5 + 2.0;
     }
 
-    void drawCrosshair(Graphics2D g2, int panelWidth, int panelHeight) {
+    public void drawCrosshair(Graphics2D g2, int panelWidth, int panelHeight) {
         int centerX = panelWidth / 2;
         int centerY = panelHeight / 2;
         g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
@@ -409,7 +415,7 @@ final class FirstPersonWorldRenderer {
         g2.drawLine(centerX, centerY - 10, centerX, centerY + 10);
     }
 
-    void drawSelection(
+    public void drawSelection(
         Graphics2D g2,
         Player player,
         double cameraYaw,
@@ -534,7 +540,7 @@ final class FirstPersonWorldRenderer {
             x + 0.5, y + 0.5, z);
     }
 
-    SelectionTarget raycastSelection(World world, Player player, double cameraYaw, double cameraPitch, double interactRange) {
+    public SelectionTarget raycastSelection(World world, Player player, double cameraYaw, double cameraPitch, double interactRange) {
         double eyeX = player.x;
         double eyeY = player.y + FIRST_PERSON_EYE_HEIGHT;
         double eyeZ = player.z;

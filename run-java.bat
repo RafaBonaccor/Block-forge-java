@@ -2,7 +2,7 @@
 setlocal EnableDelayedExpansion
 
 set "PROJECT_ROOT=%~dp0"
-set "SOURCE_DIR=%PROJECT_ROOT%java\src\blockforge"
+set "SOURCE_DIR=%PROJECT_ROOT%java\src"
 set "OUTPUT_DIR=%PROJECT_ROOT%java\out"
 set "CORRETTO_BIN=C:\Program Files\Amazon Corretto\jdk21.0.6_7\bin"
 
@@ -39,7 +39,7 @@ if %errorlevel%==0 (
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 
 set "SOURCES="
-for %%F in ("%SOURCE_DIR%\*.java") do (
+for /r "%SOURCE_DIR%" %%F in (*.java) do (
   set "SOURCES=!SOURCES! "%%~fF""
 )
 

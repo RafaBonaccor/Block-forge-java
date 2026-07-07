@@ -1,4 +1,6 @@
-package blockforge;
+package blockforge.game;
+
+import blockforge.world.World;
 
 public final class Player {
     public double x;

@@ -1,6 +1,8 @@
-package blockforge;
+package blockforge.game;
 
-final class BlockBreakDebris {
+import blockforge.world.BlockType;
+
+public final class BlockBreakDebris {
     private final BlockType blockType;
     private final double size;
     private final double maxLifeSeconds;
@@ -12,7 +14,7 @@ final class BlockBreakDebris {
     private double velocityZ;
     private double lifeSeconds;
 
-    BlockBreakDebris(
+    public BlockBreakDebris(
         BlockType blockType,
         double x,
         double y,
@@ -35,7 +37,7 @@ final class BlockBreakDebris {
         this.lifeSeconds = maxLifeSeconds;
     }
 
-    void update(double delta, double gravity) {
+    public void update(double delta, double gravity) {
         velocityY -= gravity * delta;
         x += velocityX * delta;
         y += velocityY * delta;
@@ -43,31 +45,31 @@ final class BlockBreakDebris {
         lifeSeconds = Math.max(0, lifeSeconds - delta);
     }
 
-    boolean isAlive() {
+    public boolean isAlive() {
         return lifeSeconds > 0;
     }
 
-    BlockType blockType() {
+    public BlockType blockType() {
         return blockType;
     }
 
-    double x() {
+    public double x() {
         return x;
     }
 
-    double y() {
+    public double y() {
         return y;
     }
 
-    double z() {
+    public double z() {
         return z;
     }
 
-    double size() {
+    public double size() {
         return size;
     }
 
-    double lifeRatio() {
+    public double lifeRatio() {
         return maxLifeSeconds <= 0 ? 0 : lifeSeconds / maxLifeSeconds;
     }
 }

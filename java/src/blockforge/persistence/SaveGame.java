@@ -1,4 +1,9 @@
-package blockforge;
+package blockforge.persistence;
+
+import blockforge.game.Player;
+import blockforge.game.ViewMode;
+import blockforge.world.BlockType;
+import blockforge.world.World;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,18 +12,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
 
-final class SaveGame {
+public final class SaveGame {
     private static final int VERSION = 1;
     private static final String BLOCK_PREFIX = "block.";
 
     private SaveGame() {
     }
 
-    static Path defaultPath() {
+    public static Path defaultPath() {
         return Path.of(System.getProperty("user.dir"), "java", "save", "blockforge.properties");
     }
 
-    static void save(
+    public static void save(
         Path path,
         World world,
         Player player,
@@ -56,7 +61,7 @@ final class SaveGame {
         }
     }
 
-    static LoadedGame load(Path path) throws IOException {
+    public static LoadedGame load(Path path) throws IOException {
         Properties properties = new Properties();
         try (InputStream input = Files.newInputStream(path)) {
             properties.load(input);
@@ -115,7 +120,7 @@ final class SaveGame {
         return Double.parseDouble(properties.getProperty(key, Double.toString(fallback)));
     }
 
-    record LoadedGame(
+    public record LoadedGame(
         World world,
         Player player,
         double cameraYaw,

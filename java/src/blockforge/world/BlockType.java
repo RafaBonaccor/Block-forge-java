@@ -1,4 +1,4 @@
-package blockforge;
+package blockforge.world;
 
 import java.awt.Color;
 

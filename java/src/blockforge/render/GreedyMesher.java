@@ -1,4 +1,7 @@
-package blockforge;
+package blockforge.render;
+
+import blockforge.world.BlockType;
+import blockforge.world.World;
 
 import java.awt.Color;
 import java.util.ArrayList;

@@ -1,28 +1,32 @@
 # Blockforge Java Architecture
 
-## Current roles
+## Package map
 
-- `Main.java`: application entry point
-- `GamePanel.java`: input, game loop, player physics, and interaction orchestration
-- `World.java`: voxel storage, terrain generation, and block queries
-- `Player.java`: player state
-- `IsometricWorldRenderer.java`: superior/isometric rendering
-- `FirstPersonWorldRenderer.java`: first-person rendering and targeting
-- `ViewMode.java`, `SelectionTarget.java`, `CellProjection.java`: shared model types
+- `blockforge`: application entry point
+- `blockforge.ui`: Swing view, input wiring, game loop and HUD
+- `blockforge.game`: player state, targeting, mining and gameplay events
+- `blockforge.world`: voxel storage, block definitions, terrain and fluid simulation
+- `blockforge.render`: first-person/isometric rendering, projection and greedy meshing
+- `blockforge.persistence`: save and load
 
-## Current model
+## Main responsibilities
 
-- the world is now block-based, not column-based
-- every `(x, y, z)` cell can contain its own `BlockType`
-- mining removes one block
-- placement fills one empty voxel adjacent to the selected block
-- both cameras render the same voxel world
+- `Main`: creates the application window
+- `GamePanel`: coordinates systems and translates input into game actions
+- `MiningController`: owns mining target, progress and block-by-block removal
+- `World`: stores voxels and exposes world queries and mutations
+- `WaterSimulator`: computes procedural water fall and horizontal flow
+- `FirstPersonWorldRenderer`: first-person world, selection and raycast rendering
+- `IsometricWorldRenderer`: superior/isometric world rendering
+- `GreedyMesher`: builds cached exposed chunk faces
+- `SaveGame`: serializes and restores game state
 
-## Direction
+## Dependency direction
 
-Next structural steps:
+`ui` coordinates `game`, `world`, `render` and `persistence`. Renderers read game/world state but do not mutate gameplay. The world owns voxel data and delegates fluid behavior to `WaterSimulator`.
 
-1. move world generation out of `World`
-2. extract player physics/controller from `GamePanel`
-3. add chunk boundaries and save/load
-4. separate UI/HUD drawing from gameplay orchestration
+## Next extractions
+
+1. move player collision and gravity from `GamePanel` into a physics controller
+2. move HUD and pause-menu painting into dedicated UI components
+3. move procedural terrain generation out of `World`

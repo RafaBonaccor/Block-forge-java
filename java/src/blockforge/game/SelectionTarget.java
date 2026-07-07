@@ -1,8 +1,8 @@
-package blockforge;
+package blockforge.game;
 
 import java.awt.Polygon;
 
-record SelectionTarget(
+public record SelectionTarget(
     int blockX,
     int blockY,
     int blockZ,

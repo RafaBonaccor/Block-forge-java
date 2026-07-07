@@ -1,5 +1,7 @@
 package blockforge;
 
+import blockforge.ui.GamePanel;
+
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 
