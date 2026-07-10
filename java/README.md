@@ -20,6 +20,7 @@ What it includes:
 - death and automatic respawn when you fall into the void
 - per-block editing: stacked blocks are independent voxels
 - pause menu
+- day/night cycle with a changing sky and night overlay
 - local save/load of world edits, player position, camera, hotbar and deaths
 - chunk-based world traversal
 - conservative first-person chunk culling before mesh rendering

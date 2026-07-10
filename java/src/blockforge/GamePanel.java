@@ -1,16 +1,4 @@
-package blockforge.ui;
-
-import blockforge.game.BlockBreakDebris;
-import blockforge.game.MiningController;
-import blockforge.game.Player;
-import blockforge.game.SelectionTarget;
-import blockforge.game.ViewMode;
-import blockforge.persistence.SaveGame;
-import blockforge.render.CellProjection;
-import blockforge.render.FirstPersonWorldRenderer;
-import blockforge.render.IsometricWorldRenderer;
-import blockforge.world.BlockType;
-import blockforge.world.World;
+package blockforge;
 
 import java.awt.AWTException;
 import java.awt.Color;
@@ -68,13 +56,6 @@ public final class GamePanel extends JPanel {
     private static final int BLOCK_BREAK_DEBRIS_COUNT = 12;
     private static final double BLOCK_BREAK_DEBRIS_LIFETIME = 0.5;
     private static final double BLOCK_BREAK_DEBRIS_GRAVITY = 9.5;
-    private static final double WATER_UPDATE_INTERVAL = 0.18;
-    private static final double WATER_CURRENT_SPEED = 1.65;
-    private static final double WATER_GRAVITY = 4.5;
-    private static final double WATER_VERTICAL_DRAG = 4.2;
-    private static final double WATER_DOWNWARD_CURRENT = 3.0;
-    private static final double WATER_SWIM_SPEED = 4.2;
-    private static final double DAY_NIGHT_CYCLE_SECONDS = 500.0;
 
     private World world = new World(22);
     private final Player player = new Player();
@@ -90,11 +71,9 @@ public final class GamePanel extends JPanel {
     private final Timer timer;
 
     private long lastFrameNanos = System.nanoTime();
-    private double dayNightClockSeconds = 0.0;
     private double cameraYaw = Math.toRadians(35);
     private double cameraPitch = -0.1;
     private double respawnCountdown = 0;
-    private double waterUpdateAccumulator = 0;
     private boolean jumpQueued = false;
     private int deathCount = 0;
     private int activeBlockIndex = 0;
@@ -109,7 +88,7 @@ public final class GamePanel extends JPanel {
     private final Path savePath = SaveGame.defaultPath();
     private String notice =
         "Sandbox Java voxel: Esc pausa, F6 salva, F9 carica, V cambia camera.";
-    private final MiningController miningController = new MiningController();
+    private MiningState miningState;
 
     public GamePanel() {
         setPreferredSize(new Dimension(PANEL_WIDTH, PANEL_HEIGHT));
@@ -210,7 +189,7 @@ public final class GamePanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
         drawSky(g2);
-        SelectionTarget breakingTarget = miningController.target(selectedTarget);
+        SelectionTarget breakingTarget = currentMiningTarget();
         if (viewMode == ViewMode.SUPERIOR) {
             isometricWorldRenderer.drawWorld(
                 g2,
@@ -222,7 +201,7 @@ public final class GamePanel extends JPanel {
                 getHeight(),
                 blockBreakDebris,
                 breakingTarget,
-                miningController.progressRatio()
+                miningState == null ? 0 : miningState.progressRatio()
             );
             isometricWorldRenderer.drawSelection(g2, selectedTarget);
             isometricWorldRenderer.drawPlayer(g2, player, cameraYaw, getWidth(), getHeight());
@@ -237,7 +216,7 @@ public final class GamePanel extends JPanel {
                 getHeight(),
                 blockBreakDebris,
                 breakingTarget,
-                miningController.progressRatio()
+                miningState == null ? 0 : miningState.progressRatio()
             );
             firstPersonWorldRenderer.drawSelection(
                 g2,
@@ -250,7 +229,6 @@ public final class GamePanel extends JPanel {
             );
             firstPersonWorldRenderer.drawCrosshair(g2, getWidth(), getHeight());
         }
-        drawNightOverlay(g2);
         drawHud(g2);
 
         g2.dispose();
@@ -260,7 +238,6 @@ public final class GamePanel extends JPanel {
         long now = System.nanoTime();
         double delta = Math.min((now - lastFrameNanos) / 1_000_000_000.0, 0.05);
         lastFrameNanos = now;
-        dayNightClockSeconds = (dayNightClockSeconds + delta) % DAY_NIGHT_CYCLE_SECONDS;
 
         if (paused) {
             return;
@@ -281,14 +258,8 @@ public final class GamePanel extends JPanel {
         updateCamera(delta);
         resolveHorizontalPenetration();
         updateMovement(delta);
-        applyWaterCurrent(delta);
         applyGravity(delta);
         updateBlockBreakDebris(delta);
-        waterUpdateAccumulator += delta;
-        if (waterUpdateAccumulator >= WATER_UPDATE_INTERVAL) {
-            waterUpdateAccumulator %= WATER_UPDATE_INTERVAL;
-            world.simulateWater();
-        }
         updateSelectionTarget();
         updateMining(delta);
 
@@ -524,8 +495,7 @@ public final class GamePanel extends JPanel {
         }
 
         player.onGround = false;
-        double activeGravity = isPlayerInWater() ? WATER_GRAVITY : GRAVITY;
-        player.verticalVelocity -= activeGravity * delta;
+        player.verticalVelocity -= GRAVITY * delta;
         double nextY = player.y + player.verticalVelocity * delta;
 
         if (player.verticalVelocity > 0 && !canOccupy(player.x, nextY, player.z)) {
@@ -775,74 +745,115 @@ public final class GamePanel extends JPanel {
         if (paused || respawnCountdown > 0) {
             return;
         }
-        if (selectedTarget == null) {
-            resetMiningProgress();
-            notice = "Nessun blocco selezionato.";
-            return;
-        }
-        if (!selectedTarget.inReach()) {
-            resetMiningProgress();
-            notice = "Blocco troppo lontano.";
-            return;
-        }
-        if (!miningController.select(world, selectedTarget)) {
-            notice = "Questo blocco non puo essere rimosso.";
-            return;
-        }
-        notice = "Scavo " + miningController.blockType().label() + "...";
-    }
-
-    private void applyWaterCurrent(double delta) {
-        if (!isPlayerInWater()) {
-            return;
-        }
-
-        int waterX = (int) Math.floor(player.x);
-        int waterY = (int) Math.floor(player.y + PLAYER_HEIGHT * 0.45);
-        int waterZ = (int) Math.floor(player.z);
-        World.WaterFlow flow = world.waterFlowAt(waterX, waterY, waterZ);
-        if (flow.isStill()) {
-            flow = world.waterFlowAt(waterX, (int) Math.floor(player.y + COLLISION_EPSILON), waterZ);
-        }
-
-        tryMove(flow.x() * WATER_CURRENT_SPEED * delta, 0);
-        tryMove(0, flow.z() * WATER_CURRENT_SPEED * delta);
-        player.verticalVelocity *= Math.exp(-WATER_VERTICAL_DRAG * delta);
-        if (flow.y() < 0) {
-            player.verticalVelocity -= WATER_DOWNWARD_CURRENT * delta;
-        }
-        if (pressedKeys.contains(KeyEvent.VK_SPACE)) {
-            player.verticalVelocity = Math.max(player.verticalVelocity, WATER_SWIM_SPEED);
-        }
-        player.onGround = false;
-    }
-
-    private boolean isPlayerInWater() {
-        int x = (int) Math.floor(player.x);
-        int z = (int) Math.floor(player.z);
-        int feetY = (int) Math.floor(player.y + COLLISION_EPSILON);
-        int bodyY = (int) Math.floor(player.y + PLAYER_HEIGHT * 0.45);
-        return world.blockAt(x, feetY, z) == BlockType.WATER ||
-            world.blockAt(x, bodyY, z) == BlockType.WATER;
+        syncMiningTarget(true);
     }
 
     private void updateMining(double delta) {
+        if (!leftMouseHeld) {
+            resetMiningProgress();
+            return;
+        }
         if (paused || respawnCountdown > 0) {
             resetMiningProgress();
             return;
         }
-        MiningController.BrokenBlock broken = miningController.update(
-            world, selectedTarget, leftMouseHeld, delta
-        );
-        if (broken != null) {
-            spawnBlockBreakDebris(broken.x(), broken.y(), broken.z(), broken.blockType());
-            notice = "Blocco rimosso: " + broken.blockType().label() + ".";
-            updateSelectionTarget();
+        if (!syncMiningTarget(false)) {
+            return;
         }
+
+        MiningState activeMining = miningState;
+        BlockType liveBlock = world.blockAt(activeMining.blockX(), activeMining.blockY(), activeMining.blockZ());
+        if (liveBlock != activeMining.blockType()) {
+            resetMiningProgress();
+            return;
+        }
+
+        double nextProgress = Math.min(
+            activeMining.progressSeconds() + delta,
+            activeMining.blockType().breakDurationSeconds()
+        );
+        miningState = activeMining.withProgress(nextProgress);
+
+        if (nextProgress < activeMining.blockType().breakDurationSeconds()) {
+            return;
+        }
+
+        if (world.removeBlock(activeMining.blockX(), activeMining.blockY(), activeMining.blockZ())) {
+            spawnBlockBreakDebris(
+                activeMining.blockX(),
+                activeMining.blockY(),
+                activeMining.blockZ(),
+                activeMining.blockType()
+            );
+            notice = "Blocco rimosso: " + activeMining.blockType().label() + ".";
+        } else {
+            notice = "Questo blocco non puo essere rimosso.";
+        }
+
+        resetMiningProgress();
+        updateSelectionTarget();
+    }
+
+    private boolean syncMiningTarget(boolean showFailureNotice) {
+        if (selectedTarget == null || !selectedTarget.inReach()) {
+            resetMiningProgress();
+            if (showFailureNotice) {
+                notice = selectedTarget == null ? "Nessun blocco selezionato." : "Blocco troppo lontano.";
+            }
+            return false;
+        }
+
+        BlockType targetBlock = world.blockAt(selectedTarget.blockX(), selectedTarget.blockY(), selectedTarget.blockZ());
+        if (targetBlock == null) {
+            resetMiningProgress();
+            if (showFailureNotice) {
+                notice = "Questo blocco non puo essere rimosso.";
+            }
+            return false;
+        }
+
+        if (miningState == null || !miningState.matches(
+            selectedTarget.blockX(), selectedTarget.blockY(), selectedTarget.blockZ(), targetBlock
+        )) {
+            miningState = new MiningState(
+                selectedTarget.blockX(),
+                selectedTarget.blockY(),
+                selectedTarget.blockZ(),
+                targetBlock,
+                0
+            );
+            notice = "Scavo " + targetBlock.label() + "...";
+        }
+        return true;
     }
 
     private void resetMiningProgress() {
-        miningController.reset();
+        miningState = null;
+    }
+
+    private SelectionTarget currentMiningTarget() {
+        if (miningState == null) {
+            return null;
+        }
+        if (
+            selectedTarget != null &&
+                selectedTarget.blockX() == miningState.blockX() &&
+                selectedTarget.blockY() == miningState.blockY() &&
+                selectedTarget.blockZ() == miningState.blockZ()
+        ) {
+            return selectedTarget;
+        }
+        return new SelectionTarget(
+            miningState.blockX(),
+            miningState.blockY(),
+            miningState.blockZ(),
+            miningState.blockX(),
+            miningState.blockY() + 1,
+            miningState.blockZ(),
+            true,
+            null,
+            0
+        );
     }
 
     private void updateBlockBreakDebris(double delta) {
@@ -931,91 +942,16 @@ public final class GamePanel extends JPanel {
     }
 
     private void drawSky(Graphics2D g2) {
-        double sunlight = daylightStrength();
-        int width = getWidth();
-        int height = getHeight();
-
-        Color zenithNight = new Color(10, 16, 38);
-        Color zenithDay = new Color(120, 191, 255);
-        Color horizonNight = new Color(4, 7, 18);
-        Color horizonDay = new Color(220, 240, 255);
-        Color zenith = blend(zenithNight, zenithDay, sunlight);
-        Color horizon = blend(horizonNight, horizonDay, sunlight);
-
-        g2.setPaint(new GradientPaint(0, 0, zenith, 0, height, horizon));
-        g2.fillRect(0, 0, width, height);
-
-        SkyDirection sunDirection = skyDirection(dayNightProgress(), 0.0);
-        SkyDirection moonDirection = skyDirection(dayNightProgress(), 0.5);
-
-        drawCelestialBody(
-            g2,
-            width,
-            height,
-            cameraYaw,
-            cameraPitch,
-            sunDirection,
-            new Color(255, 230, 150),
-            28 + 190 * sunlight,
-            34,
-            true
+        GradientPaint gradient = new GradientPaint(
+            0,
+            0,
+            new Color(213, 237, 255),
+            0,
+            getHeight(),
+            new Color(103, 162, 234)
         );
-        drawCelestialBody(
-            g2,
-            width,
-            height,
-            cameraYaw,
-            cameraPitch,
-            moonDirection,
-            new Color(238, 244, 255),
-            24 + 150 * (1.0 - sunlight),
-            28,
-            true
-        );
-    }
-
-    private void drawNightOverlay(Graphics2D g2) {
-        double darkness = 1.0 - daylightStrength();
-        if (darkness <= 0.02) {
-            return;
-        }
-
-        int alpha = (int) Math.round(118 * Math.pow(darkness, 1.25));
-        g2.setColor(new Color(6, 10, 24, alpha));
+        g2.setPaint(gradient);
         g2.fillRect(0, 0, getWidth(), getHeight());
-    }
-
-    private void drawCelestialBody(
-        Graphics2D g2,
-        int width,
-        int height,
-        double cameraYaw,
-        double cameraPitch,
-        SkyDirection direction,
-        Color color,
-        double alpha,
-        int size,
-        boolean visible
-    ) {
-        if (!visible) {
-            return;
-        }
-
-        SkyProjection projection = projectSkyDirection(direction, cameraYaw, cameraPitch, width, height);
-        if (projection == null) {
-            return;
-        }
-
-        int bodyAlpha = (int) Math.round(clamp(alpha, 0.0, 255.0));
-        int x = (int) Math.round(projection.screenX - size * 0.5);
-        int y = (int) Math.round(projection.screenY - size * 0.5);
-
-        g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), Math.min(120, bodyAlpha / 3)));
-        g2.fillRect(x - 8, y - 8, size + 16, size + 16);
-        g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), bodyAlpha));
-        g2.fillRect(x, y, size, size);
-        g2.setColor(new Color(255, 255, 255, Math.min(200, bodyAlpha)));
-        g2.drawRect(x, y, size, size);
     }
 
     private void drawHud(Graphics2D g2) {
@@ -1042,9 +978,9 @@ public final class GamePanel extends JPanel {
             );
         }
         String miningSummary = "Scavo: -";
-        if (miningController.isActive()) {
-            double progress = miningController.progressRatio() * 100.0;
-            miningSummary = "Scavo: %s %.0f%%".formatted(miningController.blockType().label(), progress);
+        if (miningState != null) {
+            double progress = miningState.progressRatio() * 100.0;
+            miningSummary = "Scavo: %s %.0f%%".formatted(miningState.blockType().label(), progress);
         }
 
         g2.setFont(getFont().deriveFont(Font.PLAIN, 15f));
@@ -1137,72 +1073,6 @@ public final class GamePanel extends JPanel {
         g2.setColor(new Color(255, 240, 205, 215));
         g2.setFont(getFont().deriveFont(Font.PLAIN, 13f));
         g2.drawString("Salvataggio: " + savePath, x + 42, y + menuHeight - 44);
-    }
-
-    private double dayNightProgress() {
-        return dayNightClockSeconds / DAY_NIGHT_CYCLE_SECONDS;
-    }
-
-    private double daylightStrength() {
-        double sunHeight = skyDirection(dayNightProgress(), 0.0).y();
-        double normalized = clamp((sunHeight + 0.18) / 0.52, 0.0, 1.0);
-        double eased = normalized * normalized * (3.0 - 2.0 * normalized);
-        return 0.12 + 0.88 * eased;
-    }
-
-    private Color blend(Color a, Color b, double t) {
-        double clamped = clamp(t, 0.0, 1.0);
-        int red = (int) Math.round(a.getRed() + (b.getRed() - a.getRed()) * clamped);
-        int green = (int) Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * clamped);
-        int blue = (int) Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * clamped);
-        int alpha = (int) Math.round(a.getAlpha() + (b.getAlpha() - a.getAlpha()) * clamped);
-        return new Color(red, green, blue, alpha);
-    }
-
-    private SkyDirection skyDirection(double progress, double phaseOffset) {
-        double bodyProgress = (progress + phaseOffset) % 1.0;
-        if (bodyProgress < 0) {
-            bodyProgress += 1.0;
-        }
-
-        double dayPhase = bodyProgress * Math.PI * 2.0;
-        return new SkyDirection(
-            -Math.cos(dayPhase),
-            Math.sin(dayPhase),
-            0.0
-        );
-    }
-
-    private SkyProjection projectSkyDirection(
-        SkyDirection direction,
-        double cameraYaw,
-        double cameraPitch,
-        int panelWidth,
-        int panelHeight
-    ) {
-        double forwardX = Math.cos(cameraYaw);
-        double forwardZ = Math.sin(cameraYaw);
-        double rightX = Math.sin(cameraYaw);
-        double rightZ = -Math.cos(cameraYaw);
-
-        double cameraX = direction.x * rightX + direction.z * rightZ;
-        double cameraZ = direction.x * forwardX + direction.z * forwardZ;
-        double cameraY = direction.y;
-
-        double cosPitch = Math.cos(cameraPitch);
-        double sinPitch = Math.sin(cameraPitch);
-        double pitchedY = cameraY * cosPitch - cameraZ * sinPitch;
-        double pitchedZ = cameraY * sinPitch + cameraZ * cosPitch;
-
-        if (pitchedZ <= 0.18) {
-            return null;
-        }
-
-        double focalLength = panelWidth * 0.55;
-        double scale = focalLength / pitchedZ;
-        double screenX = panelWidth * 0.5 + cameraX * scale;
-        double screenY = panelHeight * 0.42 - pitchedY * scale;
-        return new SkyProjection(screenX, screenY);
     }
 
     private void drawPauseButton(Graphics2D g2, PauseAction action, String label, String shortcut, String description) {
@@ -1427,12 +1297,6 @@ public final class GamePanel extends JPanel {
         return normalized;
     }
 
-    private record SkyDirection(double x, double y, double z) {
-    }
-
-    private record SkyProjection(double screenX, double screenY) {
-    }
-
     private Cursor createHiddenCursor() {
         BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
         return Toolkit.getDefaultToolkit().createCustomCursor(image, new Point(0, 0), "blockforge-hidden");
@@ -1503,6 +1367,20 @@ public final class GamePanel extends JPanel {
         SAVE,
         LOAD,
         TOGGLE_AUTO_STEP
+    }
+
+    private record MiningState(int blockX, int blockY, int blockZ, BlockType blockType, double progressSeconds) {
+        private boolean matches(int x, int y, int z, BlockType type) {
+            return blockX == x && blockY == y && blockZ == z && blockType == type;
+        }
+
+        private double progressRatio() {
+            return Math.min(1.0, progressSeconds / blockType.breakDurationSeconds());
+        }
+
+        private MiningState withProgress(double nextProgress) {
+            return new MiningState(blockX, blockY, blockZ, blockType, nextProgress);
+        }
     }
 
     private record HorizontalPush(double x, double z) {
